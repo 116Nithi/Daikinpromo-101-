@@ -1,0 +1,36 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kongkwun-bot-ingress
+  namespace: kongkwun-bot
+  annotations:
+    # Works with both Nginx Ingress and Traefik
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    # Uncomment if using cert-manager for TLS
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  # Uncomment and set your ingress class
+  # ingressClassName: nginx
+  tls:
+    - hosts:
+        - webhook.example.com  # TODO: Replace with your domain
+      secretName: kongkwun-bot-tls
+  rules:
+    - host: webhook.example.com  # TODO: Replace with your domain
+      http:
+        paths:
+          - path: /webhook
+            pathType: Prefix
+            backend:
+              service:
+                name: kongkwun-bot-svc
+                port:
+                  number: 80
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: kongkwun-bot-svc
+                port:
+                  number: 80

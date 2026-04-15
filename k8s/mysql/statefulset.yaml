@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: kongkwun-bot
+spec:
+  serviceName: mysql-svc
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              value: root_pass  # TODO: Use Secret in production
+            - name: MYSQL_USER
+              value: kongkwun
+            - name: MYSQL_PASSWORD
+              value: kongkwun_pass  # TODO: Use Secret in production
+            - name: MYSQL_DATABASE
+              value: kongkwun_bot
+          args:
+            - --character-set-server=utf8mb4
+            - --collation-server=utf8mb4_unicode_ci
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-svc
+  namespace: kongkwun-bot
+spec:
+  selector:
+    app: mysql
+  ports:
+    - port: 3306
+      targetPort: 3306
+  clusterIP: None

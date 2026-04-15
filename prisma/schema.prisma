@@ -1,0 +1,27 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Conversation {
+  id          BigInt   @id @default(autoincrement())
+  lineUserId  String   @map("line_user_id") @db.VarChar(64)
+  direction   String   @db.VarChar(20) // inbound | outbound_bot | outbound_admin
+  messageType String   @map("message_type") @db.VarChar(20)
+  content     Json
+  mediaUrl    String?  @map("media_url") @db.Text
+  replyToken  String?  @map("reply_token") @db.VarChar(64)
+  sourceType  String?  @map("source_type") @db.VarChar(20)
+  sourceId    String?  @map("source_id") @db.VarChar(64)
+  timestamp   DateTime @db.DateTime(3)
+  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  @@index([lineUserId, timestamp])
+  @@index([direction])
+  @@index([timestamp])
+  @@map("conversations")
+}
