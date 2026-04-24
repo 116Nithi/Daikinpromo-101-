@@ -17,11 +17,13 @@ model Conversation {
   replyToken  String?  @map("reply_token") @db.VarChar(64)
   sourceType  String?  @map("source_type") @db.VarChar(20)
   sourceId    String?  @map("source_id") @db.VarChar(64)
+  isRead      Boolean  @default(false) @map("is_read")
   timestamp   DateTime @db.DateTime(3)
   createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(3)
 
   @@index([lineUserId, timestamp])
   @@index([direction])
   @@index([timestamp])
+  @@index([lineUserId, direction, isRead])
   @@map("conversations")
 }

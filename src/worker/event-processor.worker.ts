@@ -1,8 +1,16 @@
+// src/worker/event-processor.worker.ts
 import { Worker, Job } from "bullmq";
 import { getRedisConnection, getQueue } from "./queue";
 import { downloadLineContent } from "../shared/line-content";
 import { uploadToGCS } from "../shared/gcs-client";
+//import { askAI } from "../shared/ai-reply"; // ✅ เพิ่ม import ai-reply
 import type { WebhookJobData } from "../shared/types";
+
+// LINE client สำหรับ reply
+import { messagingApi } from "@line/bot-sdk";
+const lineClient = new messagingApi.MessagingApiClient({
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "",
+});
 
 const MEDIA_TYPES = new Set(["image", "video", "audio", "file"]);
 
@@ -56,7 +64,39 @@ async function processEvent(job: Job<WebhookJobData>): Promise<void> {
       timestamp: new Date(event.timestamp).toISOString(),
     });
 
-    // TODO v2: AI-powered reply
+    // ✅ v2: AI-powered reply (เฉพาะข้อความ text เท่านั้น)
+    // if (
+    //   event.message.type === "text" &&
+    //   event.message.text &&
+    //   event.replyToken
+    // ) {
+      // try {
+      //   const aiReply = await askAI(lineUserId, event.message.text);
+
+      //   await lineClient.replyMessage({
+      //     replyToken: event.replyToken,
+      //     messages: [{ type: "text", text: aiReply }],
+      //   });
+
+      //   // ✅ Log outbound AI reply ลง DB ด้วย
+      //   await dbQueue.add("log-inbound", {
+      //     lineUserId,
+      //     direction: "outbound_bot",
+      //     messageType: "text",
+      //     content: { text: aiReply },
+      //     sourceType: event.source.type,
+      //     sourceId: lineUserId,
+      //     timestamp: new Date().toISOString(),
+      //   });
+
+      //   console.log(`[event-processor] AI replied to ${lineUserId}`);
+      // } catch (err) {
+      //   console.error(
+      //     `[event-processor] Failed to send AI reply:`,
+      //     (err as Error).message
+      //   );
+      // }
+    //}
   }
 }
 

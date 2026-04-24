@@ -40,7 +40,8 @@ export async function webhookHandler(
       ? request.body
       : JSON.stringify(request.body);
 
-  if (!verifySignature(rawBody, signature)) {
+  // ข้าม signature check ตอน development
+  if (env.NODE_ENV !== "development" && !verifySignature(rawBody, signature)) {
     reply.code(401).send({ error: "Invalid signature" });
     return;
   }

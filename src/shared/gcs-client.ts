@@ -1,10 +1,18 @@
 import { Storage } from "@google-cloud/storage";
 import { env } from "../config/env";
 
-const storage = new Storage({
-  keyFilename: env.GCS_KEY_FILE,
-  // On K8s use Workload Identity — no keyFilename needed
-});
+// GCS_KEY_FILE may be:
+//   - undefined → use Application Default Credentials (Workload Identity on GKE)
+//   - a file path (local dev) → use as keyFilename
+//   - a JSON string (K8s secret stringData) → parse and use as credentials
+const keyFileValue = env.GCS_KEY_FILE?.trim();
+const storage = new Storage(
+  !keyFileValue
+    ? {}
+    : keyFileValue.startsWith("{")
+      ? { credentials: JSON.parse(keyFileValue) }
+      : { keyFilename: keyFileValue }
+);
 
 const bucket = storage.bucket(env.GCS_BUCKET_NAME);
 
@@ -29,16 +37,19 @@ export async function uploadToGCS(
 }
 
 /**
- * Generate a signed URL for a GCS path (valid for 1 hour).
+ * Generate a signed URL for a GCS path.
  */
-export async function getSignedUrl(gcsPath: string): Promise<string> {
+export async function getSignedUrl(
+  gcsPath: string,
+  ttlMs: number = 60 * 60 * 1000
+): Promise<string> {
   // gcsPath format: gs://bucket-name/path/to/file
   const path = gcsPath.replace(`gs://${env.GCS_BUCKET_NAME}/`, "");
   const file = bucket.file(path);
 
   const [url] = await file.getSignedUrl({
     action: "read",
-    expires: Date.now() + 60 * 60 * 1000, // 1 hour
+    expires: Date.now() + ttlMs,
   });
 
   return url;

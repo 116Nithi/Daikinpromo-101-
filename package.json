@@ -4,7 +4,7 @@
   "description": "LINE OA Webhook - Conversation Logger",
   "main": "dist/app.js",
   "scripts": {
-    "dev": "tsx watch src/app.ts",
+    "dev": "node --env-file=.env ./node_modules/tsx/dist/cli.mjs watch src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
     "db:generate": "prisma generate",
@@ -12,16 +12,20 @@
     "db:push": "prisma db push"
   },
   "dependencies": {
+    "@fastify/multipart": "^10.0.0",
     "@google-cloud/storage": "^7.15.0",
     "@line/bot-sdk": "^9.6.0",
     "@prisma/client": "^6.5.0",
     "bullmq": "^5.30.0",
+    "docx": "^9.6.1",
     "fastify": "^5.2.0",
     "ioredis": "^5.4.0",
+    "pdfkit": "^0.18.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/pdfkit": "^0.17.6",
     "prisma": "^6.5.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"

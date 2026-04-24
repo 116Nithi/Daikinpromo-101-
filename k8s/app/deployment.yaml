@@ -17,7 +17,8 @@ spec:
     spec:
       containers:
         - name: kongkwun-bot
-          image: smartcms/kongkwun-bot:latest
+          image: smartcms/kongkwun-chat:v2
+          imagePullPolicy: Always
           ports:
             - containerPort: 3000
           envFrom:

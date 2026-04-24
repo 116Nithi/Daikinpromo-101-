@@ -18,6 +18,9 @@ COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
+# Thai TTF font for PDF export (admin-export.ts reads from ./fonts at runtime).
+# If fonts/ is empty, PDF still generates but Thai renders as boxes.
+COPY fonts ./fonts
 
 EXPOSE 3000
 

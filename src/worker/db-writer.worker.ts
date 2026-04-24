@@ -18,6 +18,9 @@ interface DbWriterJob {
 async function processDbWrite(job: Job<DbWriterJob>): Promise<void> {
   const data = job.data;
 
+  // Outbound (admin/bot) is "read" by definition; only inbound starts unread.
+  const isRead = data.direction !== "inbound";
+
   await prisma.conversation.create({
     data: {
       lineUserId: data.lineUserId,
@@ -28,6 +31,7 @@ async function processDbWrite(job: Job<DbWriterJob>): Promise<void> {
       replyToken: data.replyToken,
       sourceType: data.sourceType,
       sourceId: data.sourceId,
+      isRead,
       timestamp: new Date(data.timestamp),
     },
   });
