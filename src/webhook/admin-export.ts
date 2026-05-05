@@ -27,7 +27,111 @@ const client = new messagingApi.MessagingApiClient({
 });
 
 interface ExportParams { lineUserId: string }
-interface ExportQuery { from?: string; to?: string }
+interface ExportQuery { from?: string; to?: string; editor?: string }
+
+// Note payload shipped from the client (localStorage prototype). The server
+// trusts the categoryLabel/color so it doesn't need to keep its own category
+// map in sync — UI is the source of truth for category metadata.
+export interface ExportNote {
+  category: string;        // key, e.g. "receipt"
+  categoryLabel: string;   // display label, e.g. "ใบเสร็จ"
+  color: string;           // dot color, e.g. "#d93025"
+  body: string;
+  author: string;
+  createdAt: string;       // ISO
+}
+// Topic = lightweight tag picked at export time (vs. detailed Notes which
+// have body text). Renders as a single row "หัวข้อที่แจ้ง" under the date.
+export interface ExportTopic {
+  category: string;        // key, or "other"
+  categoryLabel: string;   // display label (incl. user-typed text for "other")
+  color: string;
+}
+interface SingleExportBody { notes?: ExportNote[]; topic?: ExportTopic | null }
+interface BulkExportBody {
+  notesByUser?: Record<string, ExportNote[]>;
+  topicByUser?: Record<string, ExportTopic>;
+}
+
+function sanitizeEditor(raw: string | undefined): string {
+  const v = (raw ?? "").toString().trim();
+  return v.length === 0 ? "Admin" : v.slice(0, 60);
+}
+
+// Render the date range row. If only one bound is given, show just that date
+// (no "ถึง ปัจจุบัน" / "เริ่มต้น ถึง ..." filler). If both bounds are the
+// same day, show just that one date. Otherwise "from ถึง to". Empty → "ทั้งหมด".
+function formatRangeText(from?: string, to?: string): string {
+  if (from && to) return from === to ? from : `${from} ถึง ${to}`;
+  if (from) return from;
+  if (to) return to;
+  return "ทั้งหมด";
+}
+
+// YYYYMMDD in Bangkok timezone for filename suffix.
+function fmtFilenameDate(d: Date): string {
+  return d.toLocaleDateString("en-CA", { timeZone: "Asia/Bangkok" }).replace(/-/g, "");
+}
+
+// Filename date should reflect "which day's data is in this report" — pick
+// `to` (end of range), fall back to `from`, fall back to today.
+function filenameDateFromRange(from?: string, to?: string): Date {
+  const pick = to || from;
+  if (pick) {
+    const d = new Date(pick);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
+
+// Business-day cutoff: admin works 8:00–17:00 Bangkok. Anything that arrives
+// after 17:00 belongs to the NEXT day's report (because admin won't process
+// it until tomorrow morning). So "report day X" = messages from X-1 17:00
+// Bangkok up to X 16:59:59.999 Bangkok.
+const BANGKOK_OFFSET_HOURS = 7;
+const BUSINESS_DAY_CUTOFF_HOUR = 17; // 17:00 Bangkok
+
+// Lower bound (inclusive): 17:00 Bangkok of (dateStr - 1 day) = (BUSINESS_DAY_CUTOFF_HOUR - BANGKOK_OFFSET_HOURS):00 UTC of (dateStr - 1 day)
+function businessDayStart(dateStr: string): Date {
+  const d = new Date(dateStr); // YYYY-MM-DD parsed as UTC midnight
+  d.setUTCDate(d.getUTCDate() - 1);
+  d.setUTCHours(BUSINESS_DAY_CUTOFF_HOUR - BANGKOK_OFFSET_HOURS, 0, 0, 0);
+  return d;
+}
+// Upper bound (inclusive): 16:59:59.999 Bangkok of dateStr = (CUTOFF - OFFSET - 1):59:59.999 UTC
+function businessDayEnd(dateStr: string): Date {
+  const d = new Date(dateStr); // YYYY-MM-DD parsed as UTC midnight
+  d.setUTCHours(BUSINESS_DAY_CUTOFF_HOUR - BANGKOK_OFFSET_HOURS - 1, 59, 59, 999);
+  return d;
+}
+
+function sanitizeTopic(raw: unknown): ExportTopic | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const label = String(r.categoryLabel ?? r.category ?? "").slice(0, 80).trim();
+  if (!label) return null;
+  return {
+    category: String(r.category ?? "").slice(0, 60),
+    categoryLabel: label,
+    color: /^#[0-9a-fA-F]{6}$/.test(String(r.color ?? "")) ? String(r.color) : "#5f6368",
+  };
+}
+
+function sanitizeNotes(raw: unknown): ExportNote[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((n): n is Record<string, unknown> => typeof n === "object" && n !== null)
+    .map((n) => ({
+      category: String(n.category ?? "").slice(0, 60),
+      categoryLabel: String(n.categoryLabel ?? n.category ?? "").slice(0, 80),
+      color: /^#[0-9a-fA-F]{6}$/.test(String(n.color ?? "")) ? String(n.color) : "#999999",
+      body: String(n.body ?? "").slice(0, 2000),
+      author: String(n.author ?? "Admin").slice(0, 60),
+      createdAt: String(n.createdAt ?? new Date().toISOString()),
+    }))
+    .filter((n) => n.body.length > 0)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
 
 // Thai+Latin font for PDF. Using Sarabun because Noto Sans Thai is Thai-only (no Latin glyphs).
 // If file missing, Helvetica is used as fallback (Thai chars will render as boxes).
@@ -46,6 +150,69 @@ if (!THAI_FONT_BUFFER) {
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // skip images larger than 20 MB to avoid blowing up the file
 const STICKER_URL = (stickerId: string) =>
   `https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerId}/android/sticker.png`;
+
+// Server runs in UTC (node:20-alpine), but exports must show Bangkok local time.
+const TZ = "Asia/Bangkok";
+const fmtDate = (d: Date) =>
+  d.toLocaleDateString("th-TH", {
+    timeZone: TZ, day: "2-digit", month: "long", year: "numeric",
+  });
+const fmtTime = (d: Date) =>
+  d.toLocaleTimeString("th-TH", {
+    timeZone: TZ, hour: "2-digit", minute: "2-digit",
+  });
+const fmtNoteStamp = (iso: string) => {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return `${d.toLocaleDateString("th-TH", {
+    timeZone: TZ, day: "2-digit", month: "short",
+  })} ${fmtTime(d)}`;
+};
+
+// Parse PNG/JPEG/GIF dimensions from the file header so the export can preserve
+// aspect ratio. Returns null on unknown format — caller should fall back to a
+// fixed box size (so we don't crash on weird inputs).
+function getImageSize(buf: Buffer): { width: number; height: number } | null {
+  if (buf.length < 24) return null;
+  // PNG: 89 50 4E 47, then IHDR with width(BE u32) at off 16, height at off 20
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+  }
+  // GIF: "GIF" then width(LE u16) at off 6, height at off 8
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) {
+    return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
+  }
+  // JPEG: scan for SOFn marker (FFC0..FFC3, FFC5..FFC7, FFC9..FFCB, FFCD..FFCF)
+  if (buf[0] === 0xff && buf[1] === 0xd8) {
+    let off = 2;
+    while (off + 9 < buf.length) {
+      if (buf[off] !== 0xff) return null;
+      const marker = buf[off + 1];
+      const isSOF =
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf);
+      if (isSOF) {
+        return {
+          width: buf.readUInt16BE(off + 7),
+          height: buf.readUInt16BE(off + 5),
+        };
+      }
+      const segLen = buf.readUInt16BE(off + 2);
+      if (segLen < 2) return null;
+      off += 2 + segLen;
+    }
+  }
+  return null;
+}
+
+// Scale a (w,h) so it fits within a (maxW,maxH) box without enlarging.
+function fitBox(w: number, h: number, maxW: number, maxH: number) {
+  if (w <= 0 || h <= 0) return { width: maxW, height: maxH };
+  const r = Math.min(maxW / w, maxH / h, 1);
+  return { width: Math.max(1, Math.round(w * r)), height: Math.max(1, Math.round(h * r)) };
+}
 
 async function fetchImageBuffer(url: string): Promise<Buffer | null> {
   try {
@@ -85,12 +252,10 @@ async function buildExportBundle(
   const where: Record<string, unknown> = { lineUserId };
   if (from || to) {
     const range: Record<string, Date> = {};
-    if (from) range.gte = new Date(from);
-    if (to) {
-      const end = new Date(to);
-      end.setHours(23, 59, 59, 999);
-      range.lte = end;
-    }
+    // Use 17:00 Bangkok cutoff: messages after 17:00 belong to the next
+    // business day's report (admin processes them the following morning).
+    if (from) range.gte = businessDayStart(from);
+    if (to) range.lte = businessDayEnd(to);
     where.timestamp = range;
   }
 
@@ -161,206 +326,356 @@ function sanitizeFilename(s: string): string {
 }
 
 /**
- * GET /api/admin/conversations/:lineUserId/export/word
+ * Build the Document "section children" (title + metadata table) for one user.
+ * Reused by both single and bulk Word export — the bulk handler stitches multiple
+ * sections into a single Document so each user starts on a fresh page.
  */
-export async function exportWordHandler(
-  request: FastifyRequest<{ Params: ExportParams; Querystring: ExportQuery }>,
-  reply: FastifyReply
-): Promise<void> {
-  const { lineUserId } = request.params;
-  const { from, to } = request.query;
+function buildWordSectionChildren(args: {
+  rows: ExportRow[];
+  profile: ExportBundle["profile"];
+  profileImage: Buffer | null;
+  images: Map<string, Buffer>;
+  displayName: string;
+  rangeText: string;
+  editor: string;
+  notes: ExportNote[];
+  topic: ExportTopic | null;
+}): (Paragraph | Table)[] {
+  const { rows, profileImage, images, displayName, rangeText, editor, notes, topic } = args;
 
-  const { rows, profile, profileImage, images } = await buildExportBundle(
-    lineUserId,
-    from,
-    to
-  );
+  // --- Styling tokens (match PDF palette) ---
+  const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: "D1D5DB" };
+  const cellBorders = {
+    top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder,
+  };
+  const noBorder = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+  const noBorders = {
+    top: noBorder, bottom: noBorder, left: noBorder, right: noBorder,
+  };
+  const noTableBorders = {
+    ...noBorders,
+    insideHorizontal: noBorder,
+    insideVertical: noBorder,
+  };
+  const cellMargins = { top: 160, bottom: 160, left: 200, right: 200 };
+  const LABEL_TEXT_COLOR = "374151";
+  const MUTED_TEXT_COLOR = "6b7280";
+  const LABEL_BG = "F3F4F6";
 
-  const displayName = profile?.displayName || lineUserId;
-  const rangeText = from || to
-    ? `${from || "(เริ่มต้น)"} ถึง ${to || "(ปัจจุบัน)"}`
-    : "ทั้งหมด";
-
-  // --- Build "ภาพรายละเอียด" cell content (the chat log) ---
-  const chatParagraphs: Paragraph[] = [];
-  let lastDate = "";
-  for (const r of rows) {
-    const dateStr = r.timestamp.toLocaleDateString("th-TH", {
-      day: "2-digit", month: "long", year: "numeric",
+  // Chat bubbles (nested tables so each bubble has its own width + alignment)
+  const chatChildren: (Paragraph | Table)[] = [];
+  const BUBBLE_SPACER_PERCENT = 30;
+  const BUBBLE_CONTENT_PERCENT = 70;
+  const buildBubble = (
+    bubbleParagraphs: Paragraph[],
+    isOutbound: boolean,
+    bubbleFill: string
+  ): Table => {
+    const contentCell = new TableCell({
+      width: { size: BUBBLE_CONTENT_PERCENT, type: WidthType.PERCENTAGE },
+      shading: { type: ShadingType.CLEAR, color: "auto", fill: bubbleFill },
+      borders: noBorders,
+      margins: { top: 120, bottom: 120, left: 180, right: 180 },
+      children: bubbleParagraphs,
     });
+    const spacerCell = new TableCell({
+      width: { size: BUBBLE_SPACER_PERCENT, type: WidthType.PERCENTAGE },
+      borders: noBorders,
+      children: [new Paragraph({ children: [] })],
+    });
+    return new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      borders: noTableBorders,
+      rows: [
+        new TableRow({
+          children: isOutbound ? [spacerCell, contentCell] : [contentCell, spacerCell],
+        }),
+      ],
+    });
+  };
+
+  let lastDate = "";
+  let lastDirection = "";
+  for (const r of rows) {
+    const dateStr = fmtDate(r.timestamp);
     if (dateStr !== lastDate) {
-      chatParagraphs.push(
+      chatChildren.push(
         new Paragraph({
           alignment: AlignmentType.CENTER,
-          spacing: { before: 200, after: 80 },
+          spacing: { before: 200, after: 120 },
           children: [
             new TextRun({
               text: `── ${dateStr} ──`,
-              bold: true,
-              size: 20,
-              color: "6b7280",
+              bold: true, size: 20, color: MUTED_TEXT_COLOR, noProof: true,
             }),
           ],
         })
       );
       lastDate = dateStr;
+      lastDirection = "";
     }
 
-    const time = r.timestamp.toLocaleTimeString("th-TH", {
-      hour: "2-digit", minute: "2-digit",
-    });
+    const time = fmtTime(r.timestamp);
     const sender = directionLabel(r.direction, displayName);
     const isOutbound = r.direction !== "inbound";
-    const senderColor = r.direction === "inbound"
-      ? "1e40af"
-      : r.direction === "outbound_admin"
-        ? "059669"
-        : "7c3aed";
+    const senderColor = r.direction === "inbound" ? "1e40af"
+      : r.direction === "outbound_admin" ? "059669" : "7c3aed";
     const text = (r.content?.text as string) || "";
-    // Any embedded media that docx can render (image or sticker). Video/audio/file stay as placeholder text.
     const isImageType = r.messageType === "image";
     const isStickerType = r.messageType === "sticker";
     const hasMedia = (isImageType || isStickerType) && images.has(r.id);
-    const contentText = text || (hasMedia ? "" : placeholderFor(r.messageType, r.content));
-    const alignment = isOutbound ? AlignmentType.RIGHT : AlignmentType.LEFT;
+    const imgLoadFailed = (isImageType || isStickerType) && !images.has(r.id);
+    const showSenderHeader = r.direction !== lastDirection;
+    const bubbleFill = isOutbound ? "ECFDF5" : "F3F4F6";
 
-    // Sender header: name + time
-    chatParagraphs.push(
-      new Paragraph({
-        alignment,
-        spacing: { before: 120, after: 20 },
-        children: [
-          new TextRun({ text: sender, bold: true, size: 20, color: senderColor }),
-          new TextRun({ text: `  ${time}`, size: 16, color: "9ca3af" }),
-        ],
-      })
-    );
-
-    if (contentText) {
-      chatParagraphs.push(
+    const bubbleParagraphs: Paragraph[] = [];
+    if (showSenderHeader) {
+      bubbleParagraphs.push(
         new Paragraph({
-          alignment,
-          spacing: { after: 80 },
-          shading: {
-            type: ShadingType.CLEAR,
-            color: "auto",
-            fill: isOutbound ? "ECFDF5" : "F3F4F6",
-          },
+          spacing: { after: 40 },
+          children: [
+            new TextRun({ text: sender, bold: true, size: 20, color: senderColor, noProof: true }),
+            new TextRun({ text: `  ${time}`, size: 16, color: "9ca3af", noProof: true }),
+          ],
+        })
+      );
+    } else {
+      bubbleParagraphs.push(
+        new Paragraph({
+          spacing: { after: 40 },
+          children: [new TextRun({ text: time, size: 16, color: "9ca3af", noProof: true })],
+        })
+      );
+    }
+
+    if (text) {
+      bubbleParagraphs.push(
+        new Paragraph({
+          children: [new TextRun({ text, size: 22, color: "111111", noProof: true })],
+        })
+      );
+    }
+
+    if (hasMedia) {
+      const buf = images.get(r.id)!;
+      const dim = getImageSize(buf);
+      const maxW = isStickerType ? 120 : 280;
+      const maxH = isStickerType ? 120 : 280;
+      const mediaSize = dim
+        ? fitBox(dim.width, dim.height, maxW, maxH)
+        : { width: maxW, height: maxH };
+      bubbleParagraphs.push(
+        new Paragraph({
+          spacing: { before: 60 },
+          children: [
+            new ImageRun({ data: buf, transformation: mediaSize } as any),
+          ],
+        })
+      );
+    } else if (imgLoadFailed) {
+      bubbleParagraphs.push(
+        new Paragraph({
           children: [
             new TextRun({
-              text: contentText,
-              size: 22,
-              italics: !text,
-              color: text ? "111111" : "6b7280",
+              text: isStickerType ? "[สติกเกอร์ — โหลดไม่ได้]" : "[ภาพ — โหลดไม่ได้]",
+              size: 20, italics: true, color: MUTED_TEXT_COLOR, noProof: true,
+            }),
+          ],
+        })
+      );
+    } else if (!text) {
+      bubbleParagraphs.push(
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: placeholderFor(r.messageType, r.content),
+              size: 20, italics: true, color: MUTED_TEXT_COLOR, noProof: true,
             }),
           ],
         })
       );
     }
 
-    if (hasMedia) {
-      // Stickers are small square graphics; keep them smaller than photos.
-      const mediaSize = isStickerType
-        ? { width: 120, height: 120 }
-        : { width: 260, height: 195 };
-      chatParagraphs.push(
-        new Paragraph({
-          alignment,
-          spacing: { after: 100 },
-          children: [
-            new ImageRun({
-              data: images.get(r.id)!,
-              transformation: mediaSize,
-            } as any),
-          ],
-        })
-      );
-    }
+    chatChildren.push(buildBubble(bubbleParagraphs, isOutbound, bubbleFill));
+    chatChildren.push(new Paragraph({ spacing: { after: 60 }, children: [] }));
+    lastDirection = r.direction;
   }
 
-  if (chatParagraphs.length === 0) {
-    chatParagraphs.push(
+  if (chatChildren.length === 0) {
+    chatChildren.push(
       new Paragraph({
         alignment: AlignmentType.CENTER,
         children: [
           new TextRun({
             text: "ไม่มีข้อความในช่วงที่เลือก",
-            italics: true,
-            color: "9ca3af",
+            italics: true, color: "9ca3af", noProof: true,
           }),
         ],
       })
     );
   }
 
-  // --- Build metadata cells ---
-  const nameParagraphs: Paragraph[] = [];
-  if (profileImage) {
-    nameParagraphs.push(
+  // Row helper
+  const makeRow = (
+    label: string,
+    valueChildren: (Paragraph | Table)[],
+    labelSubText?: string
+  ): TableRow => {
+    const labelChildren: Paragraph[] = [
       new Paragraph({
         children: [
-          new ImageRun({
-            data: profileImage,
-            transformation: { width: 60, height: 60 },
-          } as any),
+          new TextRun({ text: label, bold: true, size: 22, color: LABEL_TEXT_COLOR, noProof: true }),
         ],
-      })
-    );
-  }
-  nameParagraphs.push(
-    new Paragraph({ children: [new TextRun({ text: displayName, bold: true, size: 24 })] })
-  );
-  nameParagraphs.push(
-    new Paragraph({ children: [new TextRun({ text: lineUserId, size: 16, color: "6b7280" })] })
-  );
-
-  const dateParagraphs = [
-    new Paragraph({ children: [new TextRun({ text: rangeText, size: 22 })] }),
-    new Paragraph({
-      children: [
-        new TextRun({
-          text: `(Export ${new Date().toLocaleString("th-TH")} · ${rows.length} ข้อความ)`,
-          size: 16,
-          color: "888888",
-        }),
-      ],
-    }),
-  ];
-
-  const editorParagraphs = [
-    new Paragraph({ children: [new TextRun({ text: "Admin", size: 22 })] }),
-  ];
-
-  // --- Row helper ---
-  const cellBorder = { style: BorderStyle.SINGLE, size: 6, color: "cccccc" };
-  const cellBorders = {
-    top: cellBorder, bottom: cellBorder, left: cellBorder, right: cellBorder,
-  };
-  const cellMargins = { top: 160, bottom: 160, left: 200, right: 200 };
-  const makeRow = (label: string, valueParagraphs: Paragraph[]): TableRow =>
-    new TableRow({
-      children: [
-        new TableCell({
-          width: { size: 18, type: WidthType.PERCENTAGE },
-          shading: { type: ShadingType.CLEAR, color: "auto", fill: "F3F4F6" },
-          verticalAlign: VerticalAlign.CENTER,
-          borders: cellBorders,
-          margins: cellMargins,
+      }),
+    ];
+    if (labelSubText) {
+      labelChildren.push(
+        new Paragraph({
+          spacing: { before: 40 },
           children: [
-            new Paragraph({
-              children: [new TextRun({ text: label, bold: true, size: 22 })],
-            }),
+            new TextRun({ text: labelSubText, size: 16, color: MUTED_TEXT_COLOR, noProof: true }),
           ],
-        }),
+        })
+      );
+    }
+    return new TableRow({
+      children: [
         new TableCell({
-          width: { size: 82, type: WidthType.PERCENTAGE },
+          width: { size: 20, type: WidthType.PERCENTAGE },
+          shading: { type: ShadingType.CLEAR, color: "auto", fill: LABEL_BG },
           verticalAlign: VerticalAlign.TOP,
           borders: cellBorders,
           margins: cellMargins,
-          children: valueParagraphs,
+          children: labelChildren,
+        }),
+        new TableCell({
+          width: { size: 80, type: WidthType.PERCENTAGE },
+          verticalAlign: VerticalAlign.TOP,
+          borders: cellBorders,
+          margins: cellMargins,
+          children: valueChildren,
         }),
       ],
     });
+  };
+
+  // Name cell: avatar + name side-by-side (nested borderless table)
+  const nameStack: Paragraph[] = [
+    new Paragraph({ children: [new TextRun({ text: displayName, bold: true, size: 28, noProof: true })] }),
+  ];
+  const nameCellChildren: (Paragraph | Table)[] = profileImage
+    ? [
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: {
+            top: noBorder, bottom: noBorder, left: noBorder, right: noBorder,
+            insideHorizontal: noBorder, insideVertical: noBorder,
+          },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({
+                  width: { size: 1200, type: WidthType.DXA },
+                  borders: noBorders,
+                  verticalAlign: VerticalAlign.CENTER,
+                  margins: { top: 0, bottom: 0, left: 0, right: 200 },
+                  children: [
+                    new Paragraph({
+                      children: [
+                        new ImageRun({
+                          data: profileImage,
+                          transformation: { width: 64, height: 64 },
+                        } as any),
+                      ],
+                    }),
+                  ],
+                }),
+                new TableCell({
+                  borders: noBorders,
+                  verticalAlign: VerticalAlign.CENTER,
+                  margins: { top: 0, bottom: 0, left: 0, right: 0 },
+                  children: nameStack,
+                }),
+              ],
+            }),
+          ],
+        }),
+      ]
+    : nameStack;
+
+  const dateParagraphs: Paragraph[] = [
+    new Paragraph({ children: [new TextRun({ text: rangeText, size: 22, noProof: true })] }),
+  ];
+
+  // Notes block: each note = [category dot+label + meta] / [body], stacked.
+  const buildNoteParagraphs = (n: ExportNote, isLast: boolean): Paragraph[] => {
+    const colorHex = n.color.replace(/^#/, "");
+    return [
+      new Paragraph({
+        spacing: { before: 0, after: 40 },
+        children: [
+          new TextRun({
+            text: "● ",
+            size: 16, color: colorHex, noProof: true,
+          }),
+          new TextRun({
+            text: n.categoryLabel,
+            size: 18, bold: true, color: LABEL_TEXT_COLOR, noProof: true,
+          }),
+          new TextRun({
+            text: `    ${fmtNoteStamp(n.createdAt)} · ${n.author}`,
+            size: 16, color: MUTED_TEXT_COLOR, noProof: true,
+          }),
+        ],
+      }),
+      new Paragraph({
+        spacing: { after: isLast ? 0 : 200 },
+        children: [
+          new TextRun({ text: n.body, size: 20, color: "1a1a1a", noProof: true }),
+        ],
+      }),
+    ];
+  };
+
+  const noteParagraphs: Paragraph[] = notes.length === 0
+    ? [
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: "(ไม่มีบันทึก)",
+              size: 20, italics: true, color: MUTED_TEXT_COLOR, noProof: true,
+            }),
+          ],
+        }),
+      ]
+    : notes.flatMap((n, i) => buildNoteParagraphs(n, i === notes.length - 1));
+
+  const editorParagraphs: Paragraph[] = [
+    new Paragraph({ children: [new TextRun({ text: editor, size: 22, noProof: true })] }),
+  ];
+
+  const topicParagraphs: Paragraph[] = topic
+    ? [
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: "● ",
+              size: 20, color: topic.color.replace(/^#/, ""), noProof: true,
+            }),
+            new TextRun({ text: topic.categoryLabel, size: 22, noProof: true }),
+          ],
+        }),
+      ]
+    : [
+        new Paragraph({
+          children: [
+            new TextRun({
+              text: "(ไม่ระบุหัวข้อ)",
+              size: 20, italics: true, color: MUTED_TEXT_COLOR, noProof: true,
+            }),
+          ],
+        }),
+      ];
 
   const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -369,17 +684,112 @@ export async function exportWordHandler(
       insideHorizontal: cellBorder, insideVertical: cellBorder,
     },
     rows: [
-      makeRow("ชื่อผู้ใช้", nameParagraphs),
+      makeRow("ชื่อผู้ใช้", nameCellChildren),
       makeRow("วันที่", dateParagraphs),
-      makeRow("ภาพรายละเอียด", chatParagraphs),
+      makeRow("หัวข้อที่แจ้ง", topicParagraphs),
+      makeRow("ภาพรายละเอียด", chatChildren, `${rows.length} ข้อความ`),
       makeRow("ผู้แก้ไข", editorParagraphs),
     ],
   });
 
-  const doc = new Document({ sections: [{ children: [table] }] });
+  return [table];
+}
+
+/**
+ * GET /api/admin/conversations/:lineUserId/export/word
+ */
+export async function exportWordHandler(
+  request: FastifyRequest<{ Params: ExportParams; Querystring: ExportQuery; Body: SingleExportBody }>,
+  reply: FastifyReply
+): Promise<void> {
+  const { lineUserId } = request.params;
+  const { from, to } = request.query;
+  const editor = sanitizeEditor(request.query.editor);
+  const notes = sanitizeNotes(request.body?.notes);
+  const topic = sanitizeTopic(request.body?.topic);
+
+  const bundle = await buildExportBundle(lineUserId, from, to);
+  const displayName = bundle.profile?.displayName || lineUserId;
+  const rangeText = formatRangeText(from, to);
+
+  const children = buildWordSectionChildren({
+    rows: bundle.rows,
+    profile: bundle.profile,
+    profileImage: bundle.profileImage,
+    images: bundle.images,
+    displayName, rangeText, editor, notes, topic,
+  });
+
+  const doc = new Document({ sections: [{ children }] });
   const buffer = await Packer.toBuffer(doc);
 
-  const filename = `chat_${sanitizeFilename(displayName)}_${new Date().toISOString().slice(0, 10)}.docx`;
+  const filename = `DaikinPromo_${sanitizeFilename(displayName)}_${fmtFilenameDate(filenameDateFromRange(from, to))}.docx`;
+  reply
+    .header(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    .header(
+      "Content-Disposition",
+      `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`
+    )
+    .send(buffer);
+}
+
+/**
+ * GET /api/admin/export/bulk/word?ids=u1,u2,u3&from=YYYY-MM-DD&to=YYYY-MM-DD
+ * Combines multiple users' chat exports into a single Word document.
+ * Each user starts on its own page (via separate Document sections).
+ */
+export async function exportBulkWordHandler(
+  request: FastifyRequest<{ Querystring: { ids?: string; from?: string; to?: string; editor?: string }; Body: BulkExportBody }>,
+  reply: FastifyReply
+): Promise<void> {
+  const { from, to } = request.query;
+  const editor = sanitizeEditor(request.query.editor);
+  const notesByUser = request.body?.notesByUser ?? {};
+  const topicByUser = request.body?.topicByUser ?? {};
+  const ids = (request.query.ids ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const BULK_MAX = 100;
+  if (ids.length === 0) {
+    reply.code(400).send({ error: "Missing or empty 'ids' query parameter" });
+    return;
+  }
+  if (ids.length > BULK_MAX) {
+    reply.code(400).send({
+      error: `Too many ids: max ${BULK_MAX} per request (got ${ids.length})`,
+    });
+    return;
+  }
+
+  const rangeText = formatRangeText(from, to);
+
+  // Build one section per user so each starts on its own page
+  const sections = await Promise.all(
+    ids.map(async (lineUserId) => {
+      const bundle = await buildExportBundle(lineUserId, from, to);
+      const displayName = bundle.profile?.displayName || lineUserId;
+      const children = buildWordSectionChildren({
+        rows: bundle.rows,
+        profile: bundle.profile,
+        profileImage: bundle.profileImage,
+        images: bundle.images,
+        displayName, rangeText, editor,
+        notes: sanitizeNotes(notesByUser[lineUserId]),
+        topic: sanitizeTopic(topicByUser[lineUserId]),
+      });
+      return { children };
+    })
+  );
+
+  const doc = new Document({ sections });
+  const buffer = await Packer.toBuffer(doc);
+
+  const filename = `DaikinPromo_ChatReport_${fmtFilenameDate(filenameDateFromRange(from, to))}.docx`;
   reply
     .header(
       "Content-Type",
@@ -396,11 +806,14 @@ export async function exportWordHandler(
  * GET /api/admin/conversations/:lineUserId/export/pdf
  */
 export async function exportPdfHandler(
-  request: FastifyRequest<{ Params: ExportParams; Querystring: ExportQuery }>,
+  request: FastifyRequest<{ Params: ExportParams; Querystring: ExportQuery; Body: SingleExportBody }>,
   reply: FastifyReply
 ): Promise<void> {
   const { lineUserId } = request.params;
   const { from, to } = request.query;
+  const editor = sanitizeEditor(request.query.editor);
+  const notes = sanitizeNotes(request.body?.notes);
+  const topic = sanitizeTopic(request.body?.topic);
 
   const { rows, profile, profileImage, images } = await buildExportBundle(
     lineUserId,
@@ -409,9 +822,7 @@ export async function exportPdfHandler(
   );
 
   const displayName = profile?.displayName || lineUserId;
-  const rangeText = from || to
-    ? `${from || "(เริ่มต้น)"} ถึง ${to || "(ปัจจุบัน)"}`
-    : "ทั้งหมด";
+  const rangeText = formatRangeText(from, to);
 
   const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
   const chunks: Buffer[] = [];
@@ -471,7 +882,7 @@ export async function exportPdfHandler(
 
   // --- Row 1: ชื่อผู้ใช้ (with profile pic if available) ---
   const nameRowStart = doc.y;
-  const nameLineH = doc.fontSize(13).heightOfString(displayName) + doc.fontSize(9).heightOfString(lineUserId) + 6;
+  const nameLineH = doc.fontSize(13).heightOfString(displayName) + 6;
   const nameRowH = profileImage
     ? Math.max(nameLineH + padding * 2, 80)
     : Math.max(nameLineH + padding * 2, 40);
@@ -495,22 +906,55 @@ export async function exportPdfHandler(
       // ignore bad image
     }
   }
-  doc.fontSize(13).fillColor("#111").text(displayName, nameTextX, nameRowStart + padding + 4, {
-    width: contentW - (nameTextX - contentLeft) - padding,
-  });
-  doc.fontSize(9).fillColor("#6b7280").text(lineUserId, {
+  const nameY = profileImage
+    ? nameRowStart + (nameRowH - doc.fontSize(13).heightOfString(displayName)) / 2
+    : nameRowStart + padding + 4;
+  doc.fontSize(13).fillColor("#111").text(displayName, nameTextX, nameY, {
     width: contentW - (nameTextX - contentLeft) - padding,
   });
   doc.y = nameRowStart + nameRowH;
 
   // --- Row 2: วันที่ ---
-  drawMetaRow(
-    "วันที่",
-    rangeText,
-    `(Export ${new Date().toLocaleString("th-TH")} · ${rows.length} ข้อความ)`
-  );
+  drawMetaRow("วันที่", rangeText);
 
-  // --- Row 3: ภาพรายละเอียด (chat content inside the cell, borders span page breaks) ---
+  // --- Row 3: หัวข้อที่แจ้ง (single topic tag picked at export time) ---
+  {
+    const startY = doc.y;
+    const valueText = topic ? topic.categoryLabel : "(ไม่ระบุหัวข้อ)";
+    const lineH = doc.fontSize(11).heightOfString(valueText, { width: contentW - padding * 2 - (topic ? 14 : 0) });
+    const rowH = Math.max(lineH + padding * 2, 36);
+
+    doc.save();
+    doc.fillColor("#f3f4f6").rect(pageLeft, startY, labelColW, rowH).fill();
+    doc.strokeColor("#d1d5db").lineWidth(0.6);
+    doc.rect(pageLeft, startY, tableW, rowH).stroke();
+    doc.moveTo(contentLeft, startY).lineTo(contentLeft, startY + rowH).stroke();
+    doc.restore();
+
+    doc.fontSize(11).fillColor("#374151")
+      .text("หัวข้อที่แจ้ง", pageLeft + padding, startY + padding, { width: labelColW - padding * 2 });
+
+    if (topic) {
+      const dotX = contentLeft + padding + 4;
+      const dotY = startY + padding + 7;
+      doc.save();
+      doc.fillColor(topic.color).circle(dotX, dotY, 3).fill();
+      doc.restore();
+      doc.fontSize(11).fillColor("#111")
+        .text(topic.categoryLabel, contentLeft + padding + 14, startY + padding, {
+          width: contentW - padding * 2 - 14,
+        });
+    } else {
+      doc.fontSize(11).fillColor("#9ca3af")
+        .text("(ไม่ระบุหัวข้อ)", contentLeft + padding, startY + padding, {
+          width: contentW - padding * 2,
+        });
+    }
+
+    doc.y = startY + rowH;
+  }
+
+  // --- Row 4: ภาพรายละเอียด (chat content inside the cell, borders span page breaks) ---
   // Record start position BEFORE rendering. We'll render content first, then use bufferedPages
   // at the end to overlay the label column bg + outer borders (which won't cover content because
   // content is strictly inside the content column).
@@ -534,9 +978,7 @@ export async function exportPdfHandler(
 
   let lastDate = "";
   for (const r of rows) {
-    const dateStr = r.timestamp.toLocaleDateString("th-TH", {
-      day: "2-digit", month: "long", year: "numeric",
-    });
+    const dateStr = fmtDate(r.timestamp);
     if (dateStr !== lastDate) {
       doc.moveDown(0.5);
       doc.fontSize(10).fillColor("#6b7280").text(`── ${dateStr} ──`, chatLeft, doc.y, {
@@ -546,7 +988,7 @@ export async function exportPdfHandler(
       lastDate = dateStr;
     }
 
-    const time = r.timestamp.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+    const time = fmtTime(r.timestamp);
     const sender = directionLabel(r.direction, displayName);
     const isOutbound = r.direction !== "inbound";
     const senderColor =
@@ -583,8 +1025,13 @@ export async function exportPdfHandler(
     }
 
     if (hasMedia) {
-      const imgW = isStickerType ? 120 : 240;
-      const imgH = isStickerType ? 120 : 180;
+      const buf = images.get(r.id)!;
+      const dim = getImageSize(buf);
+      const maxW = isStickerType ? 120 : 280;
+      const maxH = isStickerType ? 120 : 280;
+      const { width: imgW, height: imgH } = dim
+        ? fitBox(dim.width, dim.height, maxW, maxH)
+        : { width: maxW, height: maxH };
       const imgX = isOutbound ? chatLeft + chatWidth - imgW : chatLeft;
       const imgStartY = doc.y + 4;
 
@@ -598,7 +1045,7 @@ export async function exportPdfHandler(
 
       const drawY = doc.y + 4;
       try {
-        doc.image(images.get(r.id)!, imgX, drawY, { fit: [imgW, imgH] });
+        doc.image(buf, imgX, drawY, { width: imgW, height: imgH });
         // Advance y past the image explicitly — moveDown() uses line-height which is unreliable here.
         doc.y = drawY + imgH + 8;
       } catch {
@@ -627,7 +1074,7 @@ export async function exportPdfHandler(
   if (doc.y > doc.page.height - doc.page.margins.bottom - 60) {
     doc.addPage();
   }
-  drawMetaRow("ผู้แก้ไข", "Admin");
+  drawMetaRow("ผู้แก้ไข", editor);
 
   // --- Post-process: draw borders + label-col bg for the ภาพรายละเอียด row on every page
   // it spans. We do this AFTER content is rendered because the row height is variable. ---
@@ -674,7 +1121,7 @@ export async function exportPdfHandler(
   doc.end();
   const buffer = await endPromise;
 
-  const filename = `chat_${sanitizeFilename(displayName)}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  const filename = `DaikinPromo_${sanitizeFilename(displayName)}_${fmtFilenameDate(filenameDateFromRange(from, to))}.pdf`;
   reply
     .header("Content-Type", "application/pdf")
     .header(

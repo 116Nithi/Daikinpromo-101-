@@ -1,4 +1,3 @@
-
 const chatHistory = new Map<string, { role: string; content: string }[]>();
 
 const SYSTEM_PROMPT = `คุณคือผู้ช่วยช่างแอร์ ชื่อ "ไดกิ้น"
@@ -46,8 +45,7 @@ export async function askAI(
       error?: { message?: string };
     };
 
-    const reply =
-      data.choices?.[0]?.message?.content;
+    const reply = data.choices?.[0]?.message?.content;
 
     if (!reply) {
       throw new Error(data.error?.message ?? "No reply from AI");

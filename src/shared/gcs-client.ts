@@ -38,11 +38,16 @@ export async function uploadToGCS(
 
 /**
  * Generate a signed URL for a GCS path.
+ * Default TTL is 7 days (GCS V4 max) — long enough that admin chat windows
+ * left open across days don't lose access to inline images.
  */
 export async function getSignedUrl(
   gcsPath: string,
-  ttlMs: number = 60 * 60 * 1000
+  ttlMs: number = 7 * 24 * 60 * 60 * 1000
 ): Promise<string> {
+  if (!gcsPath || typeof gcsPath !== "string") {
+    throw new Error(`getSignedUrl: gcsPath is required (got ${JSON.stringify(gcsPath)})`);
+  }
   // gcsPath format: gs://bucket-name/path/to/file
   const path = gcsPath.replace(`gs://${env.GCS_BUCKET_NAME}/`, "");
   const file = bucket.file(path);

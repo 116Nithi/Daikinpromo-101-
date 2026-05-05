@@ -1,7 +1,6 @@
 import { Worker, Job } from "bullmq";
 import { prisma } from "../database/prisma";
 import { getRedisConnection } from "./queue";
-import type { ConversationLog } from "../shared/types";
 
 interface DbWriterJob {
   lineUserId: string;
@@ -13,6 +12,8 @@ interface DbWriterJob {
   sourceType?: string;
   sourceId?: string;
   timestamp: string;
+  quoteToken?: string;
+  quotedMessageId?: string; // serialized BigInt
 }
 
 async function processDbWrite(job: Job<DbWriterJob>): Promise<void> {
@@ -33,6 +34,8 @@ async function processDbWrite(job: Job<DbWriterJob>): Promise<void> {
       sourceId: data.sourceId,
       isRead,
       timestamp: new Date(data.timestamp),
+      quoteToken: data.quoteToken,
+      quotedMessageId: data.quotedMessageId ? BigInt(data.quotedMessageId) : undefined,
     },
   });
 

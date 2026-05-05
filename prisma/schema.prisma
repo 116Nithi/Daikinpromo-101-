@@ -8,22 +8,43 @@ datasource db {
 }
 
 model Conversation {
-  id          BigInt   @id @default(autoincrement())
-  lineUserId  String   @map("line_user_id") @db.VarChar(64)
-  direction   String   @db.VarChar(20) // inbound | outbound_bot | outbound_admin
-  messageType String   @map("message_type") @db.VarChar(20)
-  content     Json
-  mediaUrl    String?  @map("media_url") @db.Text
-  replyToken  String?  @map("reply_token") @db.VarChar(64)
-  sourceType  String?  @map("source_type") @db.VarChar(20)
-  sourceId    String?  @map("source_id") @db.VarChar(64)
-  isRead      Boolean  @default(false) @map("is_read")
-  timestamp   DateTime @db.DateTime(3)
-  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  id              BigInt   @id @default(autoincrement())
+  lineUserId      String   @map("line_user_id") @db.VarChar(64)
+  direction       String   @db.VarChar(20) // inbound | outbound_bot | outbound_admin
+  messageType     String   @map("message_type") @db.VarChar(20)
+  content         Json
+  mediaUrl        String?  @map("media_url") @db.Text
+  replyToken      String?  @map("reply_token") @db.VarChar(64)
+  sourceType      String?  @map("source_type") @db.VarChar(20)
+  sourceId        String?  @map("source_id") @db.VarChar(64)
+  isRead          Boolean  @default(false) @map("is_read")
+  timestamp       DateTime @db.DateTime(3)
+  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  // LINE quote support — quoteToken issued by LINE for THIS message (used to
+  // quote it later in pushMessage). quotedMessageId is the conversation id
+  // this message was sent quoting (admin's reply to a specific past message).
+  // LINE-issued quote tokens are opaque base64-ish strings ~150 chars long;
+  // 64 was too short and caused silent INSERT failures in db-writer. Bumped
+  // to 500 to absorb any future LINE format changes without another schema bump.
+  quoteToken      String?  @map("quote_token") @db.VarChar(500)
+  quotedMessageId BigInt?  @map("quoted_message_id")
 
   @@index([lineUserId, timestamp])
   @@index([direction])
   @@index([timestamp])
   @@index([lineUserId, direction, isRead])
   @@map("conversations")
+}
+
+// Per-user chat-level status — pin / spam. One row per LINE user.
+// Shared across all admins (lives in DB instead of per-browser localStorage)
+// so flagging a chat in one browser is visible in every other browser.
+model ChatStatus {
+  lineUserId String    @id @map("line_user_id") @db.VarChar(64)
+  pinned     Boolean   @default(false)
+  pinnedAt   DateTime? @map("pinned_at") @db.DateTime(3)
+  isSpam     Boolean   @default(false) @map("is_spam")
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@map("chat_status")
 }

@@ -9,18 +9,13 @@ export interface ConversationLog {
   sourceType?: string;
   sourceId?: string;
   timestamp: Date;
+  quoteToken?: string;
+  quotedMessageId?: bigint;
 }
 
 export interface WebhookJobData {
   events: LineWebhookEvent[];
   receivedAt: string;
-}
-
-export interface BotReplyJobData {
-  lineUserId: string;
-  replyToken: string;
-  messages: unknown[];
-  originalEvent: LineWebhookEvent;
 }
 
 export interface LineWebhookEvent {

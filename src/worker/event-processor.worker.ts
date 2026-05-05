@@ -3,14 +3,14 @@ import { Worker, Job } from "bullmq";
 import { getRedisConnection, getQueue } from "./queue";
 import { downloadLineContent } from "../shared/line-content";
 import { uploadToGCS } from "../shared/gcs-client";
+//import { messagingApi } from "@line/bot-sdk";
 //import { askAI } from "../shared/ai-reply"; // ✅ เพิ่ม import ai-reply
 import type { WebhookJobData } from "../shared/types";
 
 // LINE client สำหรับ reply
-import { messagingApi } from "@line/bot-sdk";
-const lineClient = new messagingApi.MessagingApiClient({
-  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "",
-});
+//const lineClient = new messagingApi.MessagingApiClient({
+//  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "",
+//});
 
 const MEDIA_TYPES = new Set(["image", "video", "audio", "file"]);
 
@@ -40,7 +40,7 @@ async function processEvent(job: Job<WebhookJobData>): Promise<void> {
           buffer
         );
         console.log(
-          `[event-processor] Uploaded ${event.message.type} → ${mediaUrl}`
+          `[event-processor] Uploaded ${event.message.type} -> ${mediaUrl}`
         );
       } catch (err) {
         console.error(
@@ -50,7 +50,11 @@ async function processEvent(job: Job<WebhookJobData>): Promise<void> {
       }
     }
 
-    // Log to DB
+    // Log to DB. Capture LINE's quoteToken so admin can reply-quote this
+    // message later (token typically valid ~14 days per LINE docs).
+    const rawQuote = (event.message as unknown as Record<string, unknown>).quoteToken;
+    const quoteToken = typeof rawQuote === "string" ? rawQuote : undefined;
+
     const dbQueue = getQueue("db-writer");
     await dbQueue.add("log-inbound", {
       lineUserId,
@@ -62,6 +66,7 @@ async function processEvent(job: Job<WebhookJobData>): Promise<void> {
       sourceType: event.source.type,
       sourceId: lineUserId,
       timestamp: new Date(event.timestamp).toISOString(),
+      quoteToken,
     });
 
     // ✅ v2: AI-powered reply (เฉพาะข้อความ text เท่านั้น)
