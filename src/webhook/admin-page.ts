@@ -4,6 +4,9 @@ export const ADMIN_HTML = `<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Daikinpromo Chat - Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans Thai', sans-serif; background: #f0f2f5; color: #111827; font-size: 14px; }
@@ -466,20 +469,45 @@ export const ADMIN_HTML = `<!DOCTYPE html>
     .attach-item .remove:hover { background: rgba(0,0,0,0.85); }
     .attach-item .meta { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.6)); color: #fff; font-size: 9px; padding: 2px 4px; text-align: right; }
 
-    /* === Info side === */
-    .info-side { background: #fafbfc; border-left: 1px solid #e5e7eb; overflow-y: auto; }
-    .info-head { padding: 24px 18px 16px; text-align: center; border-bottom: 1px solid #e5e7eb; background: #fff; }
-    .info-head .avatar { width: 84px; height: 84px; font-size: 30px; margin: 0 auto 10px; }
-    .info-head h3 { font-size: 17px; font-weight: 700; color: #111827; word-break: break-word; }
-    .info-head .sub { font-size: 11px; color: #6b7280; margin-top: 4px; font-family: ui-monospace, monospace; word-break: break-all; }
+    /* === Info side (minimal redesign) === */
+    .info-side { background: #fff; border-left: 1px solid #e5e7eb; overflow-y: auto; }
+    .info-head { padding: 32px 20px 22px; text-align: center; border-bottom: 1px solid #f3f4f6; background: #fff; }
+    .info-head .avatar { display: block; width: 88px; height: 88px; font-size: 32px; margin: 0 auto 14px; box-shadow: 0 0 0 1px #e5e7eb; }
+    .info-name-row { display: flex; align-items: center; gap: 6px; justify-content: center; }
+    .info-name { font-size: 19px; font-weight: 700; color: #111827; line-height: 1.2; word-break: break-word; }
+    .info-edit-btn { background: #f3f4f6; border: none; color: #6b7280; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; transition: background 0.12s, color 0.12s; }
+    .info-edit-btn:hover { background: #e6f9ee; color: #04a045; }
+    .info-presence { margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; background: #e6f9ee; color: #04a045; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 500; }
+    .info-presence .presence-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,0.18); flex-shrink: 0; }
+    .info-presence.idle { background: #f3f4f6; color: #6b7280; }
+    .info-presence.idle .presence-dot { background: #9ca3af; box-shadow: 0 0 0 2px rgba(156,163,175,0.18); }
 
-    .info-body { padding: 16px 18px; }
-    .info-block { margin-bottom: 18px; }
-    .info-block h4 { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; font-weight: 600; }
-    .info-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid #f3f4f6; font-size: 13px; gap: 8px; }
-    .info-row:last-child { border: none; }
+    /* Phone / contact row — number aligned right, no icon */
+    .info-contact { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 18px; border-bottom: 1px solid #f3f4f6; }
+    .info-contact-link { color: #111827; text-decoration: none; font-weight: 600; font-size: 14px; letter-spacing: 0.4px; font-variant-numeric: tabular-nums; font-feature-settings: "tnum", "cv11"; font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+    .info-contact-link:hover { color: #04a045; }
+    .info-contact-empty { color: #9ca3af; font-size: 12px; cursor: pointer; padding: 2px 8px; border-radius: 6px; transition: background 0.12s; }
+    .info-contact-empty:hover { background: #f3f4f6; color: #6b7280; }
+    .info-copy-btn { background: transparent; border: 1px solid #e5e7eb; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; color: #9ca3af; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.12s; }
+    .info-copy-btn:hover { background: #e6f9ee; color: #04a045; border-color: #b3ecd0; }
+
+    /* Stats / Notes blocks */
+    .info-body { padding: 0; }
+    .info-block { padding: 14px 18px; border-bottom: 1px solid #f3f4f6; margin: 0; }
+    .info-block:last-child { border-bottom: none; }
+    .info-block h4 { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; font-weight: 700; }
+    .info-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 13px; gap: 8px; border: none; }
     .info-row .k { color: #6b7280; flex-shrink: 0; }
-    .info-row .v { color: #111827; font-weight: 500; text-align: right; word-break: break-word; }
+    .info-row .v { color: #111827; font-weight: 600; text-align: right; word-break: break-word; font-variant-numeric: tabular-nums; }
+
+    /* Technical info collapse */
+    .info-tech { padding: 10px 18px; cursor: pointer; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #9ca3af; letter-spacing: 0.5px; display: flex; align-items: center; justify-content: space-between; user-select: none; transition: color 0.12s; }
+    .info-tech:hover { color: #6b7280; }
+    .info-tech-body { padding: 0 18px 14px; font-size: 11px; color: #6b7280; display: none; }
+    .info-tech-body.open { display: block; }
+    .info-tech-row { display: flex; justify-content: space-between; padding: 4px 0; gap: 8px; }
+    .info-tech-row .k { color: #9ca3af; flex-shrink: 0; }
+    .info-tech-row .v { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 10px; color: #6b7280; text-align: right; word-break: break-all; }
 
     /* === Notes (minimalist) === */
     .notes-block { margin-top: 4px; }
@@ -1192,22 +1220,79 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       }
     }
 
-    function renderInfoPanel(userId, profile, messageCount) {
+    // Format relative time for "ทักล่าสุด N ชม.ที่แล้ว"
+    function formatRelativeTime(ts) {
+      if (!ts) return '—';
+      const ms = Date.now() - new Date(ts).getTime();
+      const min = Math.floor(ms / 60000);
+      if (min < 1) return 'เมื่อสักครู่';
+      if (min < 60) return min + ' นาทีที่แล้ว';
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return hr + ' ชม.ที่แล้ว';
+      const day = Math.floor(hr / 24);
+      if (day < 7) return day + ' วันที่แล้ว';
+      return new Date(ts).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+    }
+    // Format absolute Thai date "5 พ.ค. 69"
+    function formatThaiDate(ts) {
+      if (!ts) return '—';
+      return new Date(ts).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+    }
+    // Compute presence based on most recent inbound message timestamp
+    function computePresence(lastInboundTs) {
+      if (!lastInboundTs) return { idle: true, label: 'ยังไม่มีข้อความ' };
+      const minAgo = (Date.now() - new Date(lastInboundTs).getTime()) / 60000;
+      if (minAgo < 60) return { idle: false, label: 'ทักล่าสุด ' + formatRelativeTime(lastInboundTs) };
+      return { idle: true, label: 'ทักล่าสุด ' + formatRelativeTime(lastInboundTs) };
+    }
+    function toggleTechCollapse(el) {
+      const body = el.nextElementSibling;
+      body.classList.toggle('open');
+      el.firstElementChild.textContent = body.classList.contains('open') ? '▾ ข้อมูลทางเทคนิค' : '▸ ข้อมูลทางเทคนิค';
+    }
+    function copyToClipboard(text, btn) {
+      navigator.clipboard.writeText(text).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = '✓';
+        setTimeout(() => btn.textContent = orig, 1200);
+      });
+    }
+
+    function renderInfoPanel(userId, profile, messages) {
       const info = document.getElementById('infoSide');
       const name = (profile?.displayName || userProfiles[userId]?.displayName || userId).trim();
       const pic = profile?.pictureUrl || userProfiles[userId]?.pictureUrl || null;
       const safeUserId = escapeHtml(userId);
+
+      // Compute stats from messages array (can be array or '...' for loading)
+      let inboundLast = null, adminLast = null, firstSeen = null, count = 0;
+      if (Array.isArray(messages)) {
+        count = messages.length;
+        for (const m of messages) {
+          if (firstSeen === null) firstSeen = m.timestamp;
+          if (m.direction === 'inbound') inboundLast = m.timestamp;
+          if (m.direction === 'outbound_admin') adminLast = m.timestamp;
+        }
+      }
+      const presence = computePresence(inboundLast);
+      const presenceClass = presence.idle ? 'info-presence idle' : 'info-presence';
+
       info.innerHTML = \`
         <div class="info-head">
           \${avatarMarkup(pic, name)}
-          <h3>\${escapeHtml(name)}</h3>
-          <div class="sub">\${safeUserId}</div>
+          <div class="info-name-row">
+            <span class="info-name">\${escapeHtml(name)}</span>
+          </div>
+          <div class="\${presenceClass}">
+            <span class="presence-dot"></span>\${escapeHtml(presence.label)}
+          </div>
         </div>
         <div class="info-body">
           <div class="info-block">
-            <h4>สรุปการสนทนา</h4>
-            <div class="info-row"><span class="k">จำนวนข้อความ</span><span class="v">\${messageCount}</span></div>
-            <div class="info-row"><span class="k">LINE User ID</span><span class="v" style="font-family:ui-monospace,monospace;font-size:11px;">\${escapeHtml(userId.slice(0, 10))}...</span></div>
+            <h4>สรุป</h4>
+            <div class="info-row"><span class="k">ข้อความ</span><span class="v">\${count}</span></div>
+            <div class="info-row"><span class="k">ตอบล่าสุด</span><span class="v">\${formatRelativeTime(adminLast)}</span></div>
+            <div class="info-row"><span class="k">ลูกค้าตั้งแต่</span><span class="v">\${formatThaiDate(firstSeen)}</span></div>
           </div>
           <div class="info-block notes-block">
             <div class="notes-head">
@@ -1218,6 +1303,20 @@ export const ADMIN_HTML = `<!DOCTYPE html>
               </div>
             </div>
             <div class="notes-list" id="notesList"></div>
+          </div>
+          <div class="info-tech" onclick="toggleTechCollapse(this)">
+            <span>▸ ข้อมูลทางเทคนิค</span>
+            <span style="color:#9ca3af;font-size:10px;text-transform:none;">developer</span>
+          </div>
+          <div class="info-tech-body">
+            <div class="info-tech-row">
+              <span class="k">User ID</span>
+              <span class="v">\${escapeHtml(userId.slice(0, 18))}...<button type="button" class="info-copy-btn" style="margin-left:4px;width:20px;height:20px;font-size:10px;" onclick="copyToClipboard('\${safeUserId}', this)" title="คัดลอก">📋</button></span>
+            </div>
+            <div class="info-tech-row">
+              <span class="k">First seen</span>
+              <span class="v">\${firstSeen ? new Date(firstSeen).toLocaleString('th-TH') : '—'}</span>
+            </div>
           </div>
         </div>
       \`;
@@ -2526,7 +2625,7 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       const headAvatar = avatarMarkup(cached?.pictureUrl, cached?.displayName || userId);
       header.innerHTML = \`\${headAvatar}<span class="name">\${escapeHtml(cached?.displayName || userId.substring(0, 20) + '...')}</span>\${exportIconMarkup()}\`;
       container.innerHTML = '<div class="loading-wrap"><div class="spinner"></div><div>กำลังโหลดข้อความ...</div></div>';
-      renderInfoPanel(userId, null, '...');
+      renderInfoPanel(userId, null, null);
 
       await loadMessages(userId, true);
 
@@ -2577,7 +2676,7 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       const name = profile?.displayName || userProfiles[userId]?.displayName || userId;
       const pic = profile?.pictureUrl || userProfiles[userId]?.pictureUrl || null;
       header.innerHTML = \`\${avatarMarkup(pic, name)}<span class="name">\${escapeHtml(name)}</span>\${exportIconMarkup()}\`;
-      renderInfoPanel(userId, profile, data.messages.length);
+      renderInfoPanel(userId, profile, data.messages);
 
       if (data.messages.length === lastMessageCount) return;
       lastMessageCount = data.messages.length;
