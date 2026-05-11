@@ -3,7 +3,19 @@ import "@fastify/multipart";
 import { messagingApi } from "@line/bot-sdk";
 import { prisma } from "../database/prisma";
 import { env } from "../config/env";
-import { getSignedUrl, uploadToGCS } from "../shared/gcs-client";
+// Legacy GCS import — preserved for rollback (see legacy/pre-minio/README.md)
+// import { getSignedUrl, uploadToGCS } from "../shared/gcs-client";
+//
+// Two URL variants:
+//   getSignedUrl       — full public URL (sent to LINE Push API; LINE servers fetch it)
+//   getSignedUrlLocal  — same-origin URL (sent to admin browser; avoids ngrok HTML
+//                        interstitial that breaks <img> loads when MEDIA_PROXY_BASE_URL
+//                        points at a free-tier ngrok tunnel)
+import {
+  getS3SignedUrl as getSignedUrl,
+  getS3SignedUrlLocal as getSignedUrlLocal,
+  uploadToS3 as uploadToGCS,
+} from "../shared/s3-client";
 
 const client = new messagingApi.MessagingApiClient({
   channelAccessToken: env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -82,7 +94,17 @@ export async function adminUploadHandler(
   }
 
   const baseId = `admin-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const mainPath = await uploadToGCS(baseId, mainFile.mimetype, mainFile.buffer);
+
+  // Best-effort displayName so storage lands in "{userId} ({name})" folder.
+  let displayName: string | undefined;
+  try {
+    const profile = await client.getProfile(lineUserId);
+    displayName = profile.displayName;
+  } catch (err) {
+    request.log.warn({ err, lineUserId }, "getProfile failed; uploading with ID-only folder");
+  }
+
+  const mainPath = await uploadToGCS(baseId, mainFile.mimetype, mainFile.buffer, lineUserId, displayName);
   const messageType = isImage ? "image" : isVideo ? "video" : "file";
 
   // 7 days for everything (GCS V4 max). Images / videos used to be 1 hour
@@ -100,7 +122,7 @@ export async function adminUploadHandler(
       previewImageUrl: mainUrl,
     };
   } else if (isVideo) {
-    const thumbPath = await uploadToGCS(`${baseId}-thumb`, thumbFile!.mimetype, thumbFile!.buffer);
+    const thumbPath = await uploadToGCS(`${baseId}-thumb`, thumbFile!.mimetype, thumbFile!.buffer, lineUserId, displayName);
     const thumbUrl = await getSignedUrl(thumbPath);
     message = {
       type: "video",
@@ -115,7 +137,13 @@ export async function adminUploadHandler(
     };
   }
 
-  await client.pushMessage({ to: lineUserId, messages: [message] });
+  const pushRes = await client.pushMessage({ to: lineUserId, messages: [message] });
+
+  // Capture LINE-issued quoteToken so admin can later quote-reply this media
+  // message. LINE issues tokens for image/video/audio/file/text — basically
+  // every type adminUploadHandler emits.
+  const sentMessages = (pushRes as unknown as { sentMessages?: Array<{ quoteToken?: string }> }).sentMessages;
+  const newQuoteToken = sentMessages?.[0]?.quoteToken;
 
   await prisma.conversation.create({
     data: {
@@ -126,6 +154,7 @@ export async function adminUploadHandler(
       mediaUrl: mainPath,
       isRead: true,
       timestamp: new Date(),
+      quoteToken: newQuoteToken,
     },
   });
 
@@ -196,7 +225,8 @@ export async function adminTemplateAssetHandler(
 
   // Return a signed URL too so the frontend can preview the just-uploaded
   // asset without having to re-fetch (saves a round-trip in the editor).
-  const previewUrl = await getSignedUrl(thumbPath ?? mainPath);
+  // Use the local variant — this URL is consumed by the admin browser, not LINE.
+  const previewUrl = await getSignedUrlLocal(thumbPath ?? mainPath);
 
   reply.send({
     type: isImage ? "image" : "video",
@@ -235,9 +265,10 @@ export async function adminTemplatePreviewUrlsHandler(
   const urls: Record<string, string> = {};
   await Promise.all(
     paths.map(async (p) => {
-      if (typeof p === "string" && p.startsWith("gs://")) {
+      if (typeof p === "string" && (p.startsWith("gs://") || p.startsWith("s3://"))) {
         try {
-          urls[p] = await getSignedUrl(p, ttlMs);
+          // Local variant — these URLs render <img> tags in the admin browser.
+          urls[p] = await getSignedUrlLocal(p, ttlMs);
         } catch {
           // Skip — caller renders placeholder for any path we couldn't sign
         }
@@ -272,16 +303,22 @@ export async function adminSendTemplateHandler(
 
   const ttlMs = 7 * 24 * 60 * 60 * 1000;
   const messages: messagingApi.Message[] = [];
+  // Items that survived validation, aligned 1:1 with `messages` so we can map
+  // LINE's per-message quoteToken response back onto the right DB row.
+  const validItems: TemplateItem[] = [];
   for (const item of safeItems) {
     if (item.type === "text" && item.content?.trim()) {
       messages.push({ type: "text", text: item.content });
+      validItems.push(item);
     } else if (item.type === "image" && item.gcsPath) {
       const url = await getSignedUrl(item.gcsPath, ttlMs);
       messages.push({ type: "image", originalContentUrl: url, previewImageUrl: url });
+      validItems.push(item);
     } else if (item.type === "video" && item.gcsPath) {
       const url = await getSignedUrl(item.gcsPath, ttlMs);
       const thumbUrl = item.thumbPath ? await getSignedUrl(item.thumbPath, ttlMs) : url;
       messages.push({ type: "video", originalContentUrl: url, previewImageUrl: thumbUrl });
+      validItems.push(item);
     }
   }
 
@@ -290,16 +327,29 @@ export async function adminSendTemplateHandler(
     return;
   }
 
-  // LINE allows max 5 messages per push request — chunk if larger
+  // LINE allows max 5 messages per push request — chunk if larger.
+  // Capture the per-message quoteToken from each chunk so admin can later
+  // quote-reply individual items in the template.
+  const quoteTokens: (string | undefined)[] = new Array(messages.length).fill(undefined);
   for (let i = 0; i < messages.length; i += 5) {
-    await client.pushMessage({ to: lineUserId, messages: messages.slice(i, i + 5) });
+    const pushRes = await client.pushMessage({
+      to: lineUserId,
+      messages: messages.slice(i, i + 5),
+    });
+    const sentMessages = (pushRes as unknown as { sentMessages?: Array<{ quoteToken?: string }> }).sentMessages;
+    if (sentMessages) {
+      for (let j = 0; j < sentMessages.length; j++) {
+        quoteTokens[i + j] = sentMessages[j]?.quoteToken;
+      }
+    }
   }
 
   // Log each piece to DB so it shows up in the admin chat history. Stagger
   // timestamps by 1ms so the SQL ORDER BY timestamp keeps the original order.
   const baseTime = Date.now();
-  let offset = 0;
-  for (const item of safeItems) {
+  for (let idx = 0; idx < validItems.length; idx++) {
+    const item = validItems[idx];
+    const qt = quoteTokens[idx];
     if (item.type === "text" && item.content?.trim()) {
       await prisma.conversation.create({
         data: {
@@ -308,7 +358,8 @@ export async function adminSendTemplateHandler(
           messageType: "text",
           content: { type: "text", text: item.content, fromTemplate: true },
           isRead: true,
-          timestamp: new Date(baseTime + offset++),
+          timestamp: new Date(baseTime + idx),
+          quoteToken: qt,
         },
       });
     } else if ((item.type === "image" || item.type === "video") && item.gcsPath) {
@@ -320,7 +371,8 @@ export async function adminSendTemplateHandler(
           content: { type: item.type, fromTemplate: true },
           mediaUrl: item.gcsPath,
           isRead: true,
-          timestamp: new Date(baseTime + offset++),
+          timestamp: new Date(baseTime + idx),
+          quoteToken: qt,
         },
       });
     }
@@ -344,7 +396,9 @@ export async function adminReplyHandler(
     return;
   }
 
-  // Resolve the quoted message (if any) → fetch its quoteToken from DB.
+  // Resolve the quoted message (if any). We always remember `quotedMessageId`
+  // so admin's chat history shows the relationship — even when LINE itself
+  // can't render a native quote box (no token / token expired).
   let quoteToken: string | undefined;
   let quotedMessageId: bigint | undefined;
   if (quoteMessageId) {
@@ -359,16 +413,18 @@ export async function adminReplyHandler(
       reply.code(400).send({ error: "ข้อความที่ quote ไม่ตรงกับ user ปลายทาง" });
       return;
     }
-    if (!target.quoteToken) {
-      reply.code(400).send({ error: "ข้อความนี้ไม่มี quote token (อาจเป็นข้อความเก่าก่อนเปิดฟีเจอร์ หรือไม่ใช่ข้อความที่ LINE ออก token ให้)" });
-      return;
-    }
-    if (Date.now() - target.timestamp.getTime() > QUOTE_TOKEN_MAX_AGE_MS) {
-      reply.code(400).send({ error: "Quote token หมดอายุ (เกิน 14 วัน) — กรุณาตอบกลับแบบไม่ quote" });
-      return;
-    }
-    quoteToken = target.quoteToken;
     quotedMessageId = target.id;
+
+    // Token present + fresh (≤14d, the LINE-imposed lifetime) → real LINE quote.
+    // Anything else (missing token, or expired) silently falls through to a
+    // plain text reply. Frontend already warns the admin in the banner before
+    // they hit send, so we don't surface an error here.
+    if (
+      target.quoteToken &&
+      Date.now() - target.timestamp.getTime() <= QUOTE_TOKEN_MAX_AGE_MS
+    ) {
+      quoteToken = target.quoteToken;
+    }
   }
 
   // Send via Push API. quoteToken (if set) makes LINE render this as a quote-reply.
@@ -568,8 +624,8 @@ export async function getConversationHandler(
         direction: m.direction,
         messageType: m.messageType,
         content: m.content,
-        mediaUrl: m.mediaUrl?.startsWith("gs://")
-          ? await getSignedUrl(m.mediaUrl)
+        mediaUrl: (m.mediaUrl?.startsWith("gs://") || m.mediaUrl?.startsWith("s3://"))
+          ? await getSignedUrlLocal(m.mediaUrl)
           : m.mediaUrl,
         replyToken: m.replyToken,
         sourceType: m.sourceType,

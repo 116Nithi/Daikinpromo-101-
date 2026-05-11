@@ -1,11 +1,3 @@
-// LEGACY — GCS object-storage client. Replaced by ../shared/s3-client.ts (MinIO).
-// The body below is intentionally wrapped in a block comment so it can be
-// restored by uncommenting if we need to roll back to GCS. Rollback steps live
-// at legacy/pre-minio/README.md (snapshot of pre-migration files).
-//
-// Do not delete. Do not modify. If GCS is ever the target again, see the README.
-
-/*
 import { Storage } from "@google-cloud/storage";
 import { env } from "../config/env";
 
@@ -24,6 +16,10 @@ const storage = new Storage(
 
 const bucket = storage.bucket(env.GCS_BUCKET_NAME);
 
+/**
+ * Upload a buffer to GCS and return the GCS path (not public URL).
+ * Path pattern: line-media/{YYYY-MM-DD}/{messageId}.{ext}
+ */
 export async function uploadToGCS(
   messageId: string,
   contentType: string,
@@ -36,9 +32,15 @@ export async function uploadToGCS(
   const file = bucket.file(destPath);
   await file.save(data, { contentType, resumable: false });
 
+  // Store GCS path, generate signed URL on demand
   return `gs://${env.GCS_BUCKET_NAME}/${destPath}`;
 }
 
+/**
+ * Generate a signed URL for a GCS path.
+ * Default TTL is 7 days (GCS V4 max) — long enough that admin chat windows
+ * left open across days don't lose access to inline images.
+ */
 export async function getSignedUrl(
   gcsPath: string,
   ttlMs: number = 7 * 24 * 60 * 60 * 1000
@@ -46,6 +48,7 @@ export async function getSignedUrl(
   if (!gcsPath || typeof gcsPath !== "string") {
     throw new Error(`getSignedUrl: gcsPath is required (got ${JSON.stringify(gcsPath)})`);
   }
+  // gcsPath format: gs://bucket-name/path/to/file
   const path = gcsPath.replace(`gs://${env.GCS_BUCKET_NAME}/`, "");
   const file = bucket.file(path);
 
@@ -70,6 +73,3 @@ function contentTypeToExt(contentType: string): string {
   };
   return map[contentType] ?? "bin";
 }
-*/
-
-export {};

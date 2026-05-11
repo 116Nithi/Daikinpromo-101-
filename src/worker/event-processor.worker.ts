@@ -1,16 +1,20 @@
 // src/worker/event-processor.worker.ts
 import { Worker, Job } from "bullmq";
+import { messagingApi } from "@line/bot-sdk";
 import { getRedisConnection, getQueue } from "./queue";
 import { downloadLineContent } from "../shared/line-content";
-import { uploadToGCS } from "../shared/gcs-client";
-//import { messagingApi } from "@line/bot-sdk";
+// Legacy GCS import — preserved for rollback (see legacy/pre-minio/README.md)
+// import { uploadToGCS } from "../shared/gcs-client";
+import { uploadToS3 as uploadToGCS } from "../shared/s3-client";
 //import { askAI } from "../shared/ai-reply"; // ✅ เพิ่ม import ai-reply
 import type { WebhookJobData } from "../shared/types";
 
-// LINE client สำหรับ reply
-//const lineClient = new messagingApi.MessagingApiClient({
-//  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "",
-//});
+// Used to fetch sender profile so media uploads land in a folder named after
+// the user (see uploadToS3 for the path shape). Failures here are non-fatal —
+// upload still proceeds with ID-only folder.
+const lineClient = new messagingApi.MessagingApiClient({
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN ?? "",
+});
 
 const MEDIA_TYPES = new Set(["image", "video", "audio", "file"]);
 
@@ -34,10 +38,28 @@ async function processEvent(job: Job<WebhookJobData>): Promise<void> {
         const { buffer, contentType } = await downloadLineContent(
           event.message.id as string
         );
+
+        // Best-effort displayName lookup so the upload lands in a
+        // "{userId} ({name})" folder. Skipped for group/room sources where
+        // lineUserId is the group/room ID, not a profile-able user.
+        let displayName: string | undefined;
+        if (event.source.type === "user" && event.source.userId) {
+          try {
+            const profile = await lineClient.getProfile(event.source.userId);
+            displayName = profile.displayName;
+          } catch (err) {
+            console.warn(
+              `[event-processor] getProfile failed for ${event.source.userId}: ${(err as Error).message}`
+            );
+          }
+        }
+
         mediaUrl = await uploadToGCS(
           event.message.id as string,
           contentType,
-          buffer
+          buffer,
+          lineUserId,
+          displayName
         );
         console.log(
           `[event-processor] Uploaded ${event.message.type} -> ${mediaUrl}`

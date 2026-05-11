@@ -19,7 +19,9 @@ import {
 } from "docx";
 import { messagingApi } from "@line/bot-sdk";
 import { prisma } from "../database/prisma";
-import { getSignedUrl } from "../shared/gcs-client";
+// Legacy GCS import — preserved for rollback (see legacy/pre-minio/README.md)
+// import { getSignedUrl } from "../shared/gcs-client";
+import { getS3SignedUrl as getSignedUrl } from "../shared/s3-client";
 import { env } from "../config/env";
 
 const client = new messagingApi.MessagingApiClient({
@@ -270,7 +272,7 @@ async function buildExportBundle(
       direction: m.direction,
       messageType: m.messageType,
       content: (m.content ?? null) as Record<string, unknown> | null,
-      mediaUrl: m.mediaUrl?.startsWith("gs://")
+      mediaUrl: (m.mediaUrl?.startsWith("gs://") || m.mediaUrl?.startsWith("s3://"))
         ? await getSignedUrl(m.mediaUrl)
         : m.mediaUrl,
       timestamp: m.timestamp,

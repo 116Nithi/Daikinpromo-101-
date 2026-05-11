@@ -26,6 +26,7 @@ import {
   exportPdfHandler,
   exportBulkWordHandler,
 } from "./webhook/admin-export";
+import { mediaProxyHandler } from "./webhook/media-proxy";
 import { ADMIN_HTML } from "./webhook/admin-page";
 import { startEventProcessorWorker } from "./worker/event-processor.worker";
 import { startDbWriterWorker } from "./worker/db-writer.worker";
@@ -68,6 +69,13 @@ app.patch("/api/admin/chat-status/:lineUserId", updateChatStatusHandler);
 app.post("/api/admin/conversations/:lineUserId/export/word", exportWordHandler);
 app.post("/api/admin/conversations/:lineUserId/export/pdf", exportPdfHandler);
 app.post("/api/admin/export/bulk/word", exportBulkWordHandler);
+
+// Media proxy (HMAC-validated stream from MinIO) — used when MEDIA_PROXY_BASE_URL
+// is set. See src/shared/s3-client.ts and src/webhook/media-proxy.ts.
+app.get<{ Params: { bucket: string; "*": string }; Querystring: { token?: string; exp?: string } }>(
+  "/media/:bucket/*",
+  mediaProxyHandler
+);
 
 // Admin Chat UI
 app.get("/admin", async (_, reply) => {

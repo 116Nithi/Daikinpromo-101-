@@ -100,6 +100,16 @@ export const ADMIN_HTML = `<!DOCTYPE html>
     .user-tag.empty:hover { color: #6b7280; border-color: #9ca3af; }
     .user-tag .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
     .user-tag .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .user-tag-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
+    .user-tag-row .user-tag { margin-top: 0; }
+    /* Visual split between manual status chips and note-derived chips so it's
+       obvious which group a tag belongs to. The thin vertical bar is only
+       drawn when both groups are present. */
+    .user-tag-group { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+    .user-tag-group + .user-tag-group { padding-left: 6px; border-left: 1px solid #e5e7eb; margin-left: 2px; }
+    .user-tag.from-note { background: #fff7e6; border-color: #fde68a; }
+    .user-tag.from-note:hover { background: #ffefcc; border-color: #f5d472; }
+    .user-tag .src { font-size: 9px; opacity: 0.7; flex-shrink: 0; }
 
     /* Status popover (per-user assignment) */
     .status-popover { position: fixed; z-index: 200; width: 280px; background: #fff; box-shadow: 0 8px 30px rgba(0,0,0,0.15); border: 1px solid #e5e7eb; border-radius: 8px; padding: 4px 0; display: none; max-height: calc(100vh - 80px); overflow-y: auto; }
@@ -116,6 +126,9 @@ export const ADMIN_HTML = `<!DOCTYPE html>
     .status-popover .status-opt.selected { background: #f0f6ff; }
     .status-popover .status-opt.selected .check { visibility: visible; }
     .status-popover .pop-foot { display: flex; justify-content: flex-end; padding: 8px 14px; border-top: 1px solid #f3f4f6; margin-top: 4px; }
+    .status-popover .status-group-head { padding: 6px 14px 2px; font-size: 10px; font-weight: 600; color: #9ca3af; letter-spacing: 0.4px; text-transform: uppercase; }
+    .status-popover .status-group-head + .status-group-head { margin-top: 4px; }
+    .status-popover .status-group-head:not(:first-child) { border-top: 1px solid #f3f4f6; margin-top: 4px; padding-top: 8px; }
     .status-popover .pop-manage { background: transparent; border: none; color: #2d6cdf; cursor: pointer; font-size: 12px; font-family: inherit; padding: 2px 0; }
     .status-popover .pop-manage:hover { text-decoration: underline; }
 
@@ -1125,20 +1138,33 @@ export const ADMIN_HTML = `<!DOCTYPE html>
         const unreadCls = n > 0 ? 'unread' : '';
         const activeCls = u.lineUserId === currentUserId ? 'active' : '';
 
-        // Status chip below user name (independent of Notes — different tag set, stored separately)
-        const status = loadUserStatus(u.lineUserId);
-        const statusTag = status ? USER_STATUS_BY_KEY[status.tag] : null;
+        // Status chips below user name. Two visual groups separated by a
+        // thin divider:
+        //   1. Manual chips — picked from the popover, stored as user status.
+        //   2. Note chips — derived live from the user's notes (save/edit/
+        //      delete on a note flows through automatically).
+        // Click any chip — or "+ สถานะ" — to open the popover.
+        const manualTags = loadUserStatusTags(u.lineUserId);
+        const noteTags = loadNoteStatusChips(u.lineUserId);
         const safeUid = escapeHtml(u.lineUserId);
-        const tagMarkup = statusTag
-          ? \`<button type="button" class="user-tag has-status" title="\${escapeHtml(statusTag.label)}"
+        const renderChip = (t, fromNote) => \`<button type="button" class="user-tag has-status\${fromNote ? ' from-note' : ''}" title="\${escapeHtml(t.label)}\${fromNote ? ' (จากบันทึก)' : ''}"
                 onclick="event.stopPropagation();openStatusPopover(this,'\${safeUid}')">
-              <span class="dot" style="background:\${statusTag.color}"></span>
-              <span class="label">\${escapeHtml(statusTag.label)}</span>
-            </button>\`
-          : \`<button type="button" class="user-tag empty"
+              <span class="dot" style="background:\${t.color}"></span>
+              <span class="label">\${escapeHtml(t.label)}</span>
+              \${fromNote ? '<span class="src" aria-hidden="true">📝</span>' : ''}
+            </button>\`;
+        const manualChips = manualTags
+          .map(k => USER_STATUS_BY_KEY[k]).filter(Boolean)
+          .map(t => renderChip(t, false)).join('');
+        const noteChips = noteTags.map(t => renderChip(t, true)).join('');
+        const addChip = \`<button type="button" class="user-tag empty"
                 onclick="event.stopPropagation();openStatusPopover(this,'\${safeUid}')">
               <span class="label">+ สถานะ</span>
             </button>\`;
+        const groups = [];
+        if (manualChips) groups.push(\`<span class="user-tag-group">\${manualChips}</span>\`);
+        if (noteChips) groups.push(\`<span class="user-tag-group">\${noteChips}</span>\`);
+        const tagMarkup = \`<div class="user-tag-row">\${groups.join('')}\${addChip}</div>\`;
 
         // Pinned chats render with a 📌 marker next to the name; the kebab
         // button + right-click handler expose the chat-level context menu
@@ -1382,7 +1408,11 @@ export const ADMIN_HTML = `<!DOCTYPE html>
         const raw = localStorage.getItem(STATUS_TAGS_KEY);
         if (raw) {
           const arr = JSON.parse(raw);
-          if (Array.isArray(arr) && arr.length > 0) return arr;
+          if (Array.isArray(arr) && arr.length > 0) {
+            // Strip legacy note-derived entries from the prior sync design;
+            // note chips are now fully derived from the user's notes.
+            return arr.filter(t => !(t.key || '').startsWith('note:'));
+          }
         }
       } catch {}
       return DEFAULT_STATUS_TAGS.map(t => ({ ...t }));
@@ -1403,9 +1433,33 @@ export const ADMIN_HTML = `<!DOCTYPE html>
         return raw ? JSON.parse(raw) : null;
       } catch { return null; }
     }
+    // User-status array — only holds **manual** tags picked from the popover.
+    // Note-derived chips are computed on the fly from the user's notes (see
+    // loadNoteStatusChips), so save/edit/delete on a note flows through the
+    // chip automatically. Legacy "note:*" entries from the old sync design
+    // are filtered out on read.
+    function loadUserStatusTags(userId) {
+      const s = loadUserStatus(userId);
+      if (!s) return [];
+      let tags = [];
+      if (Array.isArray(s.tags)) tags = s.tags.slice();
+      else if (typeof s.tag === 'string' && s.tag) tags = [s.tag];
+      return tags.filter(k => !k.startsWith('note:'));
+    }
+    function saveUserStatusTags(userId, tags) {
+      const arr = Array.isArray(tags) ? tags.filter(Boolean) : [];
+      if (arr.length > 0) {
+        localStorage.setItem(USER_STATUS_KEY(userId), JSON.stringify({ tags: arr, updatedAt: new Date().toISOString() }));
+      } else {
+        localStorage.removeItem(USER_STATUS_KEY(userId));
+      }
+    }
     function saveUserStatus(userId, status) {
-      if (status) localStorage.setItem(USER_STATUS_KEY(userId), JSON.stringify(status));
-      else localStorage.removeItem(USER_STATUS_KEY(userId));
+      // Backward-compat shim: routes legacy {tag} writes through the tags array.
+      if (!status) { saveUserStatusTags(userId, []); return; }
+      if (Array.isArray(status.tags)) { saveUserStatusTags(userId, status.tags); return; }
+      if (status.tag) { saveUserStatusTags(userId, [status.tag]); return; }
+      saveUserStatusTags(userId, []);
     }
 
     // === Chat-level status (pin / spam) — shared across admins via DB ===
@@ -1685,31 +1739,8 @@ export const ADMIN_HTML = `<!DOCTYPE html>
 
     function openStatusPopover(anchor, userId) {
       statusPopoverTarget = userId;
-      const current = loadUserStatus(userId);
       const pop = document.getElementById('statusPopover');
-
-      const opts = USER_STATUS_TAGS.map(t => \`
-        <div class="status-opt \${current?.tag === t.key ? 'selected' : ''}" data-tag="\${t.key}">
-          <span class="dot" style="background:\${t.color}"></span>
-          <span>\${escapeHtml(t.label)}</span>
-          <span class="check">✓</span>
-        </div>
-      \`).join('');
-
-      pop.innerHTML = \`
-        <div class="pop-head">
-          <span>เลือกสถานะ</span>
-          <button type="button" class="pop-clear" onclick="clearUserStatusFromPopover()" \${current ? '' : 'disabled'}>ล้าง</button>
-        </div>
-        \${opts || '<div style="padding:14px;color:#9ca3af;font-size:12px;text-align:center;">ยังไม่มีแท็ก — กด "จัดการแท็ก" ด้านล่างเพื่อเพิ่ม</div>'}
-        <div class="pop-foot">
-          <button type="button" class="pop-manage" onclick="openTagManager()">⚙ จัดการแท็ก</button>
-        </div>
-      \`;
-
-      pop.querySelectorAll('.status-opt').forEach(el => {
-        el.addEventListener('click', () => commitUserStatus(el.dataset.tag));
-      });
+      renderStatusPopoverBody(pop);
 
       pop.style.visibility = 'hidden';
       pop.classList.add('show');
@@ -1729,17 +1760,52 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       setTimeout(() => document.addEventListener('mousedown', statusPopoverOutsideClick), 0);
     }
 
+    // Re-render the popover body in place. Called on first open and after
+    // every multi-select toggle so checkmarks update without closing.
+    function renderStatusPopoverBody(pop) {
+      const userId = statusPopoverTarget;
+      const currentTags = userId ? loadUserStatusTags(userId) : [];
+      // Popover only manages **manual** status tags — note-derived chips
+      // are owned by the บันทึก feature (add/remove a note to add/remove
+      // its chip), so they intentionally aren't selectable here.
+      const opts = USER_STATUS_TAGS.map(t => \`
+        <div class="status-opt \${currentTags.includes(t.key) ? 'selected' : ''}" data-tag="\${t.key}">
+          <span class="dot" style="background:\${t.color}"></span>
+          <span>\${escapeHtml(t.label)}</span>
+          <span class="check">✓</span>
+        </div>
+      \`).join('');
+      pop.innerHTML = \`
+        <div class="pop-head">
+          <span>เลือกสถานะ</span>
+          <button type="button" class="pop-clear" onclick="clearUserStatusFromPopover()" \${currentTags.length ? '' : 'disabled'}>ล้าง</button>
+        </div>
+        \${opts || '<div style="padding:14px;color:#9ca3af;font-size:12px;text-align:center;">ยังไม่มีแท็ก — กด "จัดการแท็ก" ด้านล่างเพื่อเพิ่ม</div>'}
+        <div class="pop-foot">
+          <button type="button" class="pop-manage" onclick="openTagManager()">⚙ จัดการแท็ก</button>
+        </div>
+      \`;
+      pop.querySelectorAll('.status-opt').forEach(el => {
+        el.addEventListener('click', () => commitUserStatus(el.dataset.tag));
+      });
+    }
+
     function commitUserStatus(tagKey) {
       if (!statusPopoverTarget) return;
-      saveUserStatus(statusPopoverTarget, { tag: tagKey, updatedAt: new Date().toISOString() });
-      closeStatusPopover();
+      const tags = loadUserStatusTags(statusPopoverTarget);
+      const idx = tags.indexOf(tagKey);
+      if (idx >= 0) tags.splice(idx, 1); else tags.push(tagKey);
+      saveUserStatusTags(statusPopoverTarget, tags);
+      // Re-render body so the checkmark updates while the popover stays open
+      // (lets admins toggle several tags in one pass).
+      renderStatusPopoverBody(document.getElementById('statusPopover'));
       renderUserList();
     }
 
     function clearUserStatusFromPopover() {
       if (!statusPopoverTarget) return;
-      saveUserStatus(statusPopoverTarget, null);
-      closeStatusPopover();
+      saveUserStatusTags(statusPopoverTarget, []);
+      renderStatusPopoverBody(document.getElementById('statusPopover'));
       renderUserList();
     }
 
@@ -1850,15 +1916,26 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       USER_STATUS_TAGS = USER_STATUS_TAGS.filter(t => t.key !== key);
       persistStatusTags();
       rebuildStatusByKey();
-      // Also clear this tag from any user that has it as status
+      // Also strip this tag from any user that has it. Status now stores
+      // an array of tags, so remove just the deleted key and keep the rest;
+      // the legacy {tag} shape collapses to empty when its single tag matches.
+      const keysToRewrite = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
-        if (k && k.startsWith('userStatus:')) {
-          try {
-            const v = JSON.parse(localStorage.getItem(k));
-            if (v?.tag === key) localStorage.removeItem(k);
-          } catch {}
-        }
+        if (k && k.startsWith('userStatus:')) keysToRewrite.push(k);
+      }
+      for (const k of keysToRewrite) {
+        try {
+          const v = JSON.parse(localStorage.getItem(k));
+          let nextTags = [];
+          if (Array.isArray(v?.tags)) nextTags = v.tags.filter(t => t !== key);
+          else if (typeof v?.tag === 'string' && v.tag !== key) nextTags = [v.tag];
+          if (nextTags.length > 0) {
+            localStorage.setItem(k, JSON.stringify({ tags: nextTags, updatedAt: new Date().toISOString() }));
+          } else {
+            localStorage.removeItem(k);
+          }
+        } catch {}
       }
       renderTagManagerList();
     }
@@ -2438,6 +2515,38 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       localStorage.setItem(NOTES_STORAGE_KEY(userId), JSON.stringify(notes));
     }
 
+    // Note-derived status chips — derived directly from a user's notes so
+    // save/edit/delete on a note flows through to the chip with no extra
+    // bookkeeping. Each note category contributes one chip; duplicates
+    // collapse. Notes whose category was deleted (no metadata in
+    // NOTE_CAT_BY_KEY) are skipped.
+    function loadNoteStatusChips(userId) {
+      const notes = loadNotes(userId).slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const seen = new Set();
+      const chips = [];
+      for (const n of notes) {
+        let key, label, color;
+        if (n.category === 'other') {
+          const lbl = (n.customLabel || '').trim();
+          if (!lbl) continue;
+          key = 'note:other:' + lbl.toLowerCase();
+          label = lbl;
+          color = '#5f6368';
+        } else {
+          const meta = NOTE_CAT_BY_KEY[n.category];
+          if (!meta) continue;
+          key = 'note:' + n.category;
+          label = meta.label;
+          color = meta.color;
+        }
+        if (!seen.has(key)) {
+          seen.add(key);
+          chips.push({ key, label, color });
+        }
+      }
+      return chips;
+    }
+
     function fmtNoteDate(iso) {
       const d = new Date(iso);
       const date = d.toLocaleDateString('th-TH', { timeZone: 'Asia/Bangkok', day: '2-digit', month: 'short' });
@@ -2583,6 +2692,9 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       saveNotes(currentUserId, notes);
       closeNoteModal();
       renderNotes(currentUserId);
+      // Note-derived chip is computed from the notes themselves, so a fresh
+      // user-list render is enough — saving/editing a note flows through.
+      renderUserList();
     }
 
     async function deleteNote(noteId) {
@@ -2592,6 +2704,9 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       const notes = loadNotes(currentUserId).filter(n => n.id !== noteId);
       saveNotes(currentUserId, notes);
       renderNotes(currentUserId);
+      // Drops the corresponding chip when this was the last note in its
+      // category — chips are derived from the notes array.
+      renderUserList();
     }
     // === end Notes prototype ========================================
 
@@ -2742,7 +2857,11 @@ export const ADMIN_HTML = `<!DOCTYPE html>
           }
         }
 
-        const replyBtn = \`<button type="button" class="msg-reply-btn" title="ตอบกลับข้อความนี้"
+        const canQuote = !!m.quoteToken;
+        const replyBtnTitle = canQuote
+          ? 'ตอบกลับข้อความนี้'
+          : 'ตอบกลับ (ข้อความนี้ไม่รองรับ quote — จะส่งเป็นข้อความปกติ)';
+        const replyBtn = \`<button type="button" class="msg-reply-btn\${canQuote ? '' : ' no-quote'}" title="\${replyBtnTitle}"
           onclick="event.stopPropagation();startReplyQuote('\${escapeHtml(String(m.id))}')">↩</button>\`;
 
         return \`\${dayHtml}
@@ -2794,7 +2913,13 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       const author = m.direction === 'outbound_admin' ? 'Admin'
                    : m.direction === 'outbound_bot' ? 'Bot'
                    : (userProfiles[currentUserId]?.displayName || 'ลูกค้า');
-      labelEl.textContent = '↩ ตอบกลับ ' + author;
+      // When the target has no quoteToken (e.g. it was sent before the
+      // capture-token feature), we fall back to a plain text reply on the
+      // server. Tell the admin up-front so the result isn't surprising.
+      const canQuote = !!m.quoteToken;
+      labelEl.textContent = canQuote
+        ? '↩ ตอบกลับ ' + author
+        : '↩ ตอบกลับ ' + author + ' (ส่งเป็นข้อความปกติ — ไม่รองรับ quote)';
       textEl.textContent = (m.content?.text)
         ? String(m.content.text)
         : (m.messageType === 'image' ? '🖼 รูปภาพ'
