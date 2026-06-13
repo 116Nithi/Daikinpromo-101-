@@ -87,12 +87,26 @@ export const ADMIN_HTML = `<!DOCTYPE html>
     .user-item.active { background: #ecfdf5; }
     .user-item.unread .user-name { font-weight: 700; color: #000; }
     .user-item.unread .user-last { color: #374151; font-weight: 500; }
+    /* read-not-replied: ลูกค้าพิมพ์ล่าสุด แอดมินอ่านแล้วแต่ยังไม่ได้ตอบ */
+    .user-item.read-not-replied { background: #fffdf0; border-left: 3px solid #fde68a; padding-left: 11px; }
+    .user-item.read-not-replied:hover { background: #fffbeb; }
+    .user-item.read-not-replied.active { background: #fef9c3; }
 
     .avatar-wrap { position: relative; flex-shrink: 0; }
     .avatar { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 16px; background: #9ca3af; object-fit: cover; overflow: hidden; }
     .unread-badge { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: #06c755; color: #fff; font-size: 11px; font-weight: 700; line-height: 20px; text-align: center; flex-shrink: 0; box-sizing: border-box; }
-    .admin-flag { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 10px; background: #fef3c7; color: #92400e; font-size: 10px; font-weight: 700; line-height: 1.4; flex-shrink: 0; white-space: nowrap; margin-left: 6px; border: 1px solid #fcd34d; }
+    .admin-flag { display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 10px; background: #fef3c7; color: #92400e; font-size: 10px; font-weight: 700; line-height: 1.4; flex-shrink: 0; white-space: nowrap; margin-left: 6px; border: 1px solid #fcd34d; animation: flagGlow 1.8s ease-in-out 2; }
     .admin-flag::before { content: "🔔"; font-size: 10px; }
+    @keyframes flagGlow { 0%,100% { box-shadow: none; } 50% { box-shadow: 0 0 6px 2px #fcd34d; } }
+    /* === Global AI toggle bar === */
+    .global-ai-bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; margin: 8px 12px; border-radius: 10px; background: #f3f4f6; border: 1px solid #e5e7eb; cursor: pointer; user-select: none; transition: background 0.2s, border-color 0.2s; }
+    .global-ai-bar.on { background: #ecfdf5; border-color: #6ee7b7; }
+    .global-ai-bar .ai-bar-label { font-size: 12px; font-weight: 600; color: #374151; }
+    .global-ai-bar.on .ai-bar-label { color: #065f46; }
+    .ai-toggle { width: 36px; height: 20px; border-radius: 10px; background: #d1d5db; position: relative; transition: background 0.2s; flex-shrink: 0; }
+    .ai-toggle.on { background: #10b981; }
+    .ai-toggle .switch { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.2); transition: transform 0.2s; }
+    .ai-toggle.on .switch { transform: translateX(16px); }
     .user-tag { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; margin-top: 4px; border-radius: 11px; font-size: 10px; color: #374151; max-width: 100%; overflow: hidden; cursor: pointer; border: 1px solid transparent; background: #f3f4f6; font-family: inherit; transition: background 0.12s, border-color 0.12s; }
     .user-tag.has-status { background: #f3f4f6; }
     .user-tag.empty { background: transparent; border: 1px dashed #d1d5db; color: #9ca3af; }
@@ -190,6 +204,11 @@ export const ADMIN_HTML = `<!DOCTYPE html>
     .chat-head-icon:hover { background: #05a847; transform: translateY(-1px); }
     .chat-head-icon:active { transform: translateY(0); }
     .chat-head-icon svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+    /* Per-chat AI toggle button in the chat header: amber=AI on, grey=AI off */
+    .chat-head-icon.ai-btn { background: #f59e0b; box-shadow: 0 2px 6px rgba(245,158,11,0.35); }
+    .chat-head-icon.ai-btn:hover { background: #d97706; }
+    .chat-head-icon.ai-off { background: #9ca3af; box-shadow: none; }
+    .chat-head-icon.ai-off:hover { background: #6b7280; }
 
     /* === Bulk export modal === */
     .bulk-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; z-index: 100; }
@@ -344,6 +363,11 @@ export const ADMIN_HTML = `<!DOCTYPE html>
     .confirm-actions button:hover { background: #f3f4f6; }
     .confirm-actions button.danger { background: #d93025; color: #fff; border-color: #d93025; }
     .confirm-actions button.danger:hover { background: #b62519; border-color: #b62519; }
+    .confirm-actions button.primary { background: #06c755; color: #fff; border-color: #06c755; }
+    .confirm-actions button.primary:hover { background: #04a045; border-color: #04a045; }
+    /* Prompt modal — input field สำหรับ showPrompt() */
+    .prompt-input { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; font-family: inherit; outline: none; box-sizing: border-box; }
+    .prompt-input:focus { border-color: #06c755; box-shadow: 0 0 0 3px rgba(6,199,85,0.15); }
 
     /* Kebab menu on user-item + context dropdown */
     .user-kebab { position: absolute; top: 8px; right: 12px; width: 26px; height: 26px; border: none; background: rgba(255,255,255,0.85); color: #6b7280; border-radius: 50%; cursor: pointer; display: none; align-items: center; justify-content: center; font-size: 16px; line-height: 1; padding: 0; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
@@ -723,13 +747,16 @@ export const ADMIN_HTML = `<!DOCTYPE html>
           <h2>Daikinpromo Chat</h2>
           <p>หน้าจัดการแชท LINE OA</p>
         </div>
-        <button type="button" class="settings-btn" onclick="openTagManager()" title="จัดการแท็กสถานะ">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 20h9"/>
-            <path d="M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4 12.5-12.5z"/>
-          </svg>
-        </button>
+        <!-- settings-btn removed — เข้าจัดการแท็กผ่าน popover แทน -->
+
       </div>
+      <!-- [AI DISABLED] Global AI toggle bar ปิดไว้ — worker ยังไม่ได้เปิด AI
+           เปิดคืนโดย: uncomment บล็อกนี้ + uncomment if-condition ใน event-processor.worker.ts
+      <div class="global-ai-bar" id="globalAiBar" onclick="toggleGlobalAi()">
+        <span class="ai-bar-label" id="globalAiLabel">AI ทั้งระบบ: กำลังโหลด...</span>
+        <div class="ai-toggle" id="globalAiToggle"><span class="switch"></span></div>
+      </div>
+      -->
       <div class="filter-wrap">
         <div class="filter-row dates">
           <input type="date" id="filterDateFrom" title="วันที่เริ่มต้น" />
@@ -828,6 +855,22 @@ export const ADMIN_HTML = `<!DOCTYPE html>
         <div class="confirm-actions">
           <button type="button" id="confirmCancelBtn" onclick="closeConfirm(false)">ยกเลิก</button>
           <button type="button" class="danger" id="confirmOkBtn" onclick="closeConfirm(true)">ตกลง</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prompt modal สำหรับกรอกข้อความ (ใช้แทน native prompt) -->
+    <div class="confirm-overlay" id="promptOverlay" onclick="if(event.target===this)closePrompt(null)">
+      <div class="confirm-modal">
+        <div class="confirm-head"><h3 id="promptTitle">กรอกข้อมูล</h3></div>
+        <div class="confirm-body" id="promptBody"></div>
+        <div style="padding: 0 22px 14px;">
+          <input type="text" id="promptInput" class="prompt-input"
+                 onkeydown="if(event.key==='Enter')closePrompt(document.getElementById('promptInput').value);if(event.key==='Escape')closePrompt(null)" />
+        </div>
+        <div class="confirm-actions">
+          <button type="button" onclick="closePrompt(null)">ยกเลิก</button>
+          <button type="button" class="primary" onclick="closePrompt(document.getElementById('promptInput').value)">ตกลง</button>
         </div>
       </div>
     </div>
@@ -988,8 +1031,8 @@ export const ADMIN_HTML = `<!DOCTYPE html>
           </div>
           <ul class="note-cat-list" id="noteCatList"></ul>
 
-          <div class="note-section-label">รายละเอียด</div>
-          <textarea class="note-textarea" id="noteBody" placeholder="พิมพ์รายละเอียดที่ลูกค้าแจ้ง..."></textarea>
+          <div class="note-section-label">รายละเอียด <span style="color:#9ca3af;font-weight:400;font-size:11px;">(ไม่บังคับ)</span></div>
+          <textarea class="note-textarea" id="noteBody" placeholder="พิมพ์รายละเอียดเพิ่มเติม (ถ้ามี)..."></textarea>
 
           <div class="note-section-label" style="margin-top: 20px;">บันทึกโดย</div>
           <input type="text" class="note-author-input" id="noteAuthor" placeholder="เช่น Admin" maxlength="40" />
@@ -1022,11 +1065,28 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       })[c]);
     }
 
+    // ถ้า displayName ที่ได้มาเป็น raw LINE user ID (U + hex 32 ตัว)
+    // = บัญชี LINE ที่ยังไม่ได้ cache profile หรือ display_name เป็น NULL
+    // → ตัดให้เหลือ "U40c27e66..." แทนที่จะโชว์เต็ม 33 ตัว ดูแล้วรกตา
+    function isRawLineId(s) {
+      return typeof s === 'string' && /^U[a-f0-9]{16,}$/i.test(s.trim());
+    }
+    function formatDisplayName(name, userId) {
+      const n = (name || '').trim();
+      if (!n || isRawLineId(n)) {
+        return (userId || '').substring(0, 10) + '…';
+      }
+      return n;
+    }
+
     function avatarMarkup(pictureUrl, name, sizeClass) {
       const initial = escapeHtml((name || '?').trim().charAt(0).toUpperCase() || '?');
       const safe = escapeHtml(name || '');
       if (pictureUrl) {
-        return \`<img class="avatar \${sizeClass || ''}" src="\${escapeHtml(pictureUrl)}" alt="\${safe}" onerror="this.replaceWith(document.createRange().createContextualFragment('<div class=\\\\'avatar \${sizeClass || ''}\\\\'>\${initial}</div>').firstChild)" />\`;
+        // loading="lazy" — browser โหลดรูปเฉพาะที่ใกล้เข้า viewport
+        // ที่ list 700+ chat ไม่ต้อง fetch profile picture ทั้งหมดพร้อมกัน
+        // decoding="async" — decode รูปแบบ async ไม่ block main thread
+        return \`<img class="avatar \${sizeClass || ''}" src="\${escapeHtml(pictureUrl)}" alt="\${safe}" loading="lazy" decoding="async" onerror="this.replaceWith(document.createRange().createContextualFragment('<div class=\\\\'avatar \${sizeClass || ''}\\\\'>\${initial}</div>').firstChild)" />\`;
       }
       return \`<div class="avatar \${sizeClass || ''}">\${initial}</div>\`;
     }
@@ -1050,7 +1110,10 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       // only 3 are real customer chats and 7 are spam noise).
       const spamUsers    = allUsers.filter(u => loadChatStatus(u.lineUserId).isSpam);
       const nonSpamUsers = allUsers.filter(u => !loadChatStatus(u.lineUserId).isSpam);
-      const unreadUsers  = nonSpamUsers.filter(u => Number(u.unreadCount || 0) > 0);
+      // "ยังไม่ตอบ" = ข้อความล่าสุดมาจากลูกค้า (direction inbound) — ครอบคลุม
+      // ทั้งกรณี (1) มี unread + (2) อ่านแล้วแต่แอดมินยังไม่ตอบ
+      // กรณี (2) จะแสดงไฮไลท์สีเหลืองในรายการ
+      const unreadUsers  = nonSpamUsers.filter(u => u.direction === 'inbound');
       countAllEl.textContent    = nonSpamUsers.length;
       countUnreadEl.textContent = unreadUsers.length;
       countSpamEl.textContent   = spamUsers.length;
@@ -1123,11 +1186,18 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       }
 
       const newHtml = users.map(u => {
-        const rawName = u.displayName || u.lineUserId.substring(0, 12) + '...';
+        // ถ้ามี custom name → แสดง "แอล (เดิม: 🌸✨สาย🌸✨)"
+        // ไม่มี → แสดงชื่อ LINE ปกติ
+        const customName = loadCustomName(u.lineUserId);
+        const lineName = formatDisplayName(u.displayName, u.lineUserId);
+        const rawName = customName
+          ? customName + ' (เดิม: ' + lineName + ')'
+          : lineName;
         const name = escapeHtml(rawName);
         const lastMsg = escapeHtml(u.content?.text || u.messageType || '');
         const time = fmtTime(u.timestamp);
-        const avatar = avatarMarkup(u.pictureUrl, rawName);
+        // avatar fallback ใช้ตัวอักษรแรกของชื่อจริง (custom ก็ได้)
+        const avatar = avatarMarkup(u.pictureUrl, customName || lineName);
         const n = Number(u.unreadCount || 0);
         const badge = n > 0
           ? \`<span class="unread-badge" title="ยังไม่ได้ตอบ \${n} ข้อความ">\${n > 99 ? '99+' : n}</span>\`
@@ -1153,8 +1223,12 @@ export const ADMIN_HTML = `<!DOCTYPE html>
               <span class="label">\${escapeHtml(t.label)}</span>
               \${fromNote ? '<span class="src" aria-hidden="true">📝</span>' : ''}
             </button>\`;
+        // Dedupe: ถ้า note chip กับ manual chip มี label เดียวกัน ให้แสดงแค่ note
+        // chip (อันที่มี 📝) เพราะ note เป็น source ที่ live — ลบ note → chip หาย
+        const noteLabels = new Set(noteTags.map(t => t.label));
         const manualChips = manualTags
           .map(k => USER_STATUS_BY_KEY[k]).filter(Boolean)
+          .filter(t => !noteLabels.has(t.label))
           .map(t => renderChip(t, false)).join('');
         const noteChips = noteTags.map(t => renderChip(t, true)).join('');
         const addChip = \`<button type="button" class="user-tag empty"
@@ -1173,8 +1247,12 @@ export const ADMIN_HTML = `<!DOCTYPE html>
         const chatStatus = loadChatStatus(u.lineUserId);
         const pinMark = chatStatus.pinned ? \`<span class="pin-mark" title="ปักหมุด">\${ICON_PIN}</span>\` : '';
         const spamCls = chatStatus.isSpam ? ' is-spam' : '';
+        // ไฮไลท์เหลือง: ลูกค้าพิมพ์ล่าสุด + แอดมินอ่านแล้วแต่ยังไม่ตอบ
+        // (กันเคสอ่านแล้วลืมตอบ — ป้องกันลูกค้ารอนาน)
+        const readNotReplied = u.direction === 'inbound' && n === 0;
+        const readNotRepliedCls = readNotReplied ? ' read-not-replied' : '';
         return \`
-          <div class="user-item \${activeCls} \${unreadCls}\${spamCls}"
+          <div class="user-item \${activeCls} \${unreadCls}\${spamCls}\${readNotRepliedCls}"
                onclick="selectUser('\${escapeHtml(u.lineUserId)}')"
                oncontextmenu="event.preventDefault();openChatContextMenu(event,'\${safeUid}');return false;">
             <div class="avatar-wrap">\${avatar}</div>
@@ -1228,11 +1306,17 @@ export const ADMIN_HTML = `<!DOCTYPE html>
 
     async function loadConversations() {
       try {
+        // หมายเหตุ: ตัด hydrateNotesFromServer ออกจาก polling แล้ว
+        // เดิมรอบ 5 วินาทีจะรีเฟรช notes ทั้งหมด ทำให้เกิด race:
+        // user เพิ่ม note → POST กำลังส่ง → polling ดึงทับ → note หาย
+        // ตอนนี้ notes ถูก hydrate เฉพาะตอน: bootstrap, selectUser, หลัง save/delete
         const res = await fetch('/api/admin/conversations');
         const users = await res.json();
         users.forEach(u => {
+          // เก็บ displayName แบบ raw (อาจเป็น null หรือ LINE ID เปล่า ๆ ก็ได้)
+          // ให้ formatDisplayName ตัดสินใจตอน render เพื่อความ consistent
           userProfiles[u.lineUserId] = {
-            displayName: u.displayName || u.lineUserId.substring(0, 12) + '...',
+            displayName: u.displayName || '',
             pictureUrl: u.pictureUrl || null,
           };
         });
@@ -1286,7 +1370,13 @@ export const ADMIN_HTML = `<!DOCTYPE html>
 
     function renderInfoPanel(userId, profile, messages) {
       const info = document.getElementById('infoSide');
-      const name = (profile?.displayName || userProfiles[userId]?.displayName || userId).trim();
+      const rawLineName = profile?.displayName || userProfiles[userId]?.displayName || '';
+      const lineName = formatDisplayName(rawLineName, userId);
+      const customName = loadCustomName(userId);
+      // Format: "แอล (เดิม: 🌸✨สาย🌸✨)" หรือชื่อ LINE ปกติถ้าไม่มี custom
+      const name = (customName
+        ? customName + ' (เดิม: ' + lineName + ')'
+        : lineName).trim();
       const pic = profile?.pictureUrl || userProfiles[userId]?.pictureUrl || null;
       const safeUserId = escapeHtml(userId);
 
@@ -1307,7 +1397,8 @@ export const ADMIN_HTML = `<!DOCTYPE html>
         <div class="info-head">
           \${avatarMarkup(pic, name)}
           <div class="info-name-row">
-            <span class="info-name">\${escapeHtml(name)}</span>
+            <span class="info-name" id="infoNameLabel">\${escapeHtml(name)}</span>
+            <button type="button" class="info-edit-btn" onclick="startEditCustomName('\${safeUserId}')" title="แก้ไขชื่อ (เฉพาะแอดมิน)">✎</button>
           </div>
           <div class="\${presenceClass}">
             <span class="presence-dot"></span>\${escapeHtml(presence.label)}
@@ -1324,7 +1415,6 @@ export const ADMIN_HTML = `<!DOCTYPE html>
             <div class="notes-head">
               <h4>บันทึก</h4>
               <div class="notes-head-actions">
-                <button type="button" class="notes-add-btn" onclick="openNoteCatManager()" title="จัดการหมวดหมู่">⚙</button>
                 <button type="button" class="notes-add-btn" onclick="openNoteModal()" title="เพิ่มบันทึก">⊕</button>
               </div>
             </div>
@@ -1378,12 +1468,38 @@ export const ADMIN_HTML = `<!DOCTYPE html>
     }
     function persistNoteCategories() {
       localStorage.setItem(NOTE_CATEGORIES_KEY, JSON.stringify(NOTE_CATEGORIES));
+      fetch('/api/admin/note-categories', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categories: NOTE_CATEGORIES }),
+      }).catch(err => console.warn('persist note categories failed:', err));
     }
     function rebuildNoteCatByKey() {
       NOTE_CAT_BY_KEY = Object.fromEntries(NOTE_CATEGORIES.map(c => [c.key, c]));
     }
     let NOTE_CATEGORIES = loadNoteCategoriesStored();
     let NOTE_CAT_BY_KEY = Object.fromEntries(NOTE_CATEGORIES.map(c => [c.key, c]));
+
+    async function hydrateNoteCategoriesFromServer() {
+      try {
+        const res = await fetch('/api/admin/note-categories');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length > 0) {
+          NOTE_CATEGORIES = rows;
+          localStorage.setItem(NOTE_CATEGORIES_KEY, JSON.stringify(NOTE_CATEGORIES));
+        } else {
+          await fetch('/api/admin/note-categories', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ categories: NOTE_CATEGORIES }),
+          });
+        }
+        rebuildNoteCatByKey();
+      } catch (err) {
+        console.warn('hydrate note categories failed:', err);
+      }
+    }
 
     // Customer status tags — display-only chip below user name in left sidebar.
     // Independent from Notes/Export. Editable list (CRUD) + per-user assignment,
@@ -1460,6 +1576,49 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       if (Array.isArray(status.tags)) { saveUserStatusTags(userId, status.tags); return; }
       if (status.tag) { saveUserStatusTags(userId, [status.tag]); return; }
       saveUserStatusTags(userId, []);
+    }
+
+    // === Custom display name (admin override) ===========================
+    // PROTOTYPE: เก็บใน localStorage ก่อน เพื่อให้แอดมินตั้งชื่อลูกค้าเองได้
+    // โดยไม่ต้องรอ schema เปลี่ยน — ค่านี้ override ทั้ง user list และ info
+    // panel แต่ไม่กระทบ LINE profile จริง
+    // TODO: ย้ายเข้า DB (UserProfile.customDisplayName) เมื่อ schema พร้อม
+    const CUSTOM_NAME_KEY = uid => 'customName:' + uid;
+    function loadCustomName(userId) {
+      try {
+        const v = localStorage.getItem(CUSTOM_NAME_KEY(userId));
+        return v ? v.trim() : '';
+      } catch { return ''; }
+    }
+    function saveCustomName(userId, name) {
+      const trimmed = (name || '').trim();
+      if (trimmed) {
+        localStorage.setItem(CUSTOM_NAME_KEY(userId), trimmed);
+      } else {
+        localStorage.removeItem(CUSTOM_NAME_KEY(userId));
+      }
+    }
+    // เปิด popup ให้แอดมินแก้ไขชื่อ — ใช้ styled modal (ไม่ใช่ native prompt)
+    // ไม่โชว์ LINE user ID เพราะไม่จำเป็นและรกตา
+    async function startEditCustomName(userId) {
+      const current = loadCustomName(userId);
+      const lineName = userProfiles[userId]?.displayName || '';
+      // กันโชว์ user ID ใน placeholder ถ้า displayName เป็น "Uxxxxx..." (fallback ใน loadConversations)
+      const isLineId = /^U[a-f0-9]{12,}/i.test(lineName);
+      const cleanLineName = (lineName && !isLineId) ? lineName : '';
+      const input = await showPrompt({
+        title: 'แก้ไขชื่อลูกค้า',
+        body: cleanLineName
+          ? \`เห็นแค่แอดมิน — เว้นว่างเพื่อใช้ชื่อจาก LINE: \${cleanLineName}\`
+          : 'เห็นแค่แอดมิน — เว้นว่างเพื่อใช้ชื่อจาก LINE',
+        initial: current,
+        placeholder: cleanLineName || 'พิมพ์ชื่อที่ต้องการแสดง...',
+      });
+      if (input === null) return; // ยกเลิก
+      saveCustomName(userId, input);
+      // re-render ทุกที่ที่แสดงชื่อ: user list + chat header + info panel
+      renderUserList();
+      if (currentUserId === userId) loadMessages(userId, false);
     }
 
     // === Chat-level status (pin / spam) — shared across admins via DB ===
@@ -1702,6 +1861,26 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       document.getElementById('confirmOverlay').classList.remove('show');
       const r = _confirmResolver;
       _confirmResolver = null;
+      if (r) r(result);
+    }
+
+    // Prompt modal — drop-in styled replacement สำหรับ native prompt()
+    // resolve เป็น string ที่ user พิมพ์ หรือ null ถ้ายกเลิก / กด Esc
+    let _promptResolver = null;
+    function showPrompt({ title, body, initial, placeholder }) {
+      document.getElementById('promptTitle').textContent = title || 'กรอกข้อมูล';
+      document.getElementById('promptBody').textContent = body || '';
+      const input = document.getElementById('promptInput');
+      input.value = initial || '';
+      input.placeholder = placeholder || '';
+      document.getElementById('promptOverlay').classList.add('show');
+      setTimeout(() => { input.focus(); input.select(); }, 50);
+      return new Promise(resolve => { _promptResolver = resolve; });
+    }
+    function closePrompt(result) {
+      document.getElementById('promptOverlay').classList.remove('show');
+      const r = _promptResolver;
+      _promptResolver = null;
       if (r) r(result);
     }
 
@@ -2081,6 +2260,11 @@ export const ADMIN_HTML = `<!DOCTYPE html>
     }
     function persistTemplates() {
       localStorage.setItem(TPL_STORAGE_KEY, JSON.stringify(TEMPLATES));
+      fetch('/api/admin/templates', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templates: TEMPLATES }),
+      }).catch(err => console.warn('persist templates failed:', err));
     }
     // Helper: pick the first text content for chip display (or "(N items)" if all media)
     function tplDisplayText(t) {
@@ -2093,6 +2277,27 @@ export const ADMIN_HTML = `<!DOCTYPE html>
     }
     let TEMPLATES = loadTemplates();
     let editingTplKey = null;
+
+    async function hydrateTemplatesFromServer() {
+      try {
+        const res = await fetch('/api/admin/templates');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length > 0) {
+          TEMPLATES = rows.map(normalizeTpl);
+          localStorage.setItem(TPL_STORAGE_KEY, JSON.stringify(TEMPLATES));
+        } else {
+          await fetch('/api/admin/templates', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ templates: TEMPLATES }),
+          });
+        }
+        renderTplBar();
+      } catch (err) {
+        console.warn('hydrate templates failed:', err);
+      }
+    }
 
     function renderTplBar() {
       const chips = document.getElementById('tplChips');
@@ -2501,9 +2706,11 @@ export const ADMIN_HTML = `<!DOCTYPE html>
     }
     // === end templates =================================================
     const NOTES_STORAGE_KEY = (userId) => 'chatNotes:' + userId;
+    const NOTE_CACHE = new Map();
     let editingNoteId = null;
 
     function loadNotes(userId) {
+      if (NOTE_CACHE.has(userId)) return NOTE_CACHE.get(userId).map(n => ({ ...n }));
       try {
         const raw = localStorage.getItem(NOTES_STORAGE_KEY(userId));
         return raw ? JSON.parse(raw) : [];
@@ -2512,7 +2719,33 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       }
     }
     function saveNotes(userId, notes) {
+      NOTE_CACHE.set(userId, notes.map(n => ({ ...n })));
       localStorage.setItem(NOTES_STORAGE_KEY(userId), JSON.stringify(notes));
+    }
+
+    async function hydrateNotesFromServer(userId) {
+      try {
+        const url = userId
+          ? '/api/admin/notes?lineUserId=' + encodeURIComponent(userId)
+          : '/api/admin/notes';
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const rows = await res.json();
+        if (!Array.isArray(rows)) return;
+        if (userId) {
+          const notes = rows.map(n => ({ ...n, createdAt: n.createdAt || new Date().toISOString() }));
+          saveNotes(userId, notes);
+        } else {
+          const grouped = new Map();
+          for (const n of rows) {
+            if (!grouped.has(n.lineUserId)) grouped.set(n.lineUserId, []);
+            grouped.get(n.lineUserId).push({ ...n, createdAt: n.createdAt || new Date().toISOString() });
+          }
+          for (const [uid, notes] of grouped) saveNotes(uid, notes);
+        }
+      } catch (err) {
+        console.warn('hydrate notes failed:', err);
+      }
     }
 
     // Note-derived status chips — derived directly from a user's notes so
@@ -2566,13 +2799,17 @@ export const ADMIN_HTML = `<!DOCTYPE html>
         const cat = n.category === 'other'
           ? { label: n.customLabel || 'อื่น ๆ', color: '#5f6368' }
           : NOTE_CAT_BY_KEY[n.category] || { label: n.category, color: '#999' };
+        // body เป็น optional — ถ้าว่างไม่ render div เพื่อไม่ให้มีช่องว่างใหญ่
+        const bodyMarkup = (n.body && n.body.trim())
+          ? \`<div class="note-body">\${escapeHtml(n.body)}</div>\`
+          : '';
         return \`
           <div class="note-item" data-id="\${escapeHtml(n.id)}">
             <div class="note-cat">
               <span class="dot" style="background:\${cat.color}"></span>
               <span>\${escapeHtml(cat.label)}</span>
             </div>
-            <div class="note-body">\${escapeHtml(n.body)}</div>
+            \${bodyMarkup}
             <div class="note-meta">
               <span>\${escapeHtml(n.author || '—')} · \${fmtNoteDate(n.createdAt)}</span>
               <span class="note-actions">
@@ -2650,8 +2887,11 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       editingNoteId = null;
     }
 
-    function saveNote() {
+    async function saveNote() {
       if (!currentUserId) return;
+      // จับ userId ตอนเริ่ม save — ถ้า user สลับแชทระหว่าง await
+      // currentUserId จะเปลี่ยน แต่ note ต้องเก็บใต้แชทเดิม
+      const targetUserId = currentUserId;
       const cat = document.querySelector('input[name="noteCat"]:checked')?.value;
       const body = document.getElementById('noteBody').value.trim();
       const author = document.getElementById('noteAuthor').value.trim() || 'Admin';
@@ -2660,6 +2900,8 @@ export const ADMIN_HTML = `<!DOCTYPE html>
         showAlert('กรุณาเลือกหมวด');
         return;
       }
+      // body (รายละเอียด) เป็น optional — เก็บแค่ category อย่างเดียวก็พอ
+      // ใช้กรณีอยากแท็กแชทไว้โดยไม่ต้องเขียนรายละเอียด
 
       let customLabel = '';
       if (cat === 'other') {
@@ -2671,7 +2913,7 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       }
 
       localStorage.setItem('lastNoteAuthor', author);
-      const notes = loadNotes(currentUserId);
+      const notes = loadNotes(targetUserId);
 
       if (editingNoteId) {
         const idx = notes.findIndex(n => n.id === editingNoteId);
@@ -2689,9 +2931,37 @@ export const ADMIN_HTML = `<!DOCTYPE html>
         });
       }
 
-      saveNotes(currentUserId, notes);
+      saveNotes(targetUserId, notes);
+      const saved = editingNoteId
+        ? notes.find(n => n.id === editingNoteId)
+        : notes[notes.length - 1];
+      if (saved) {
+        try {
+          const res = await fetch('/api/admin/notes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...saved, lineUserId: targetUserId }),
+          });
+          if (res.ok) {
+            const serverNote = await res.json();
+            const idx = notes.findIndex(n => n.id === saved.id);
+            if (idx >= 0) notes[idx] = serverNote;
+            saveNotes(targetUserId, notes);
+          } else {
+            const errText = await res.text();
+            console.warn('save note API failed:', res.status, errText);
+            // log payload เพื่อให้ดู Network tab ได้สะดวกว่า field ไหนหาย
+            console.warn('save note payload was:', { ...saved, lineUserId: targetUserId });
+            showAlert('บันทึก note ไม่สำเร็จ (HTTP ' + res.status + '): ' + errText);
+          }
+        } catch (err) {
+          console.warn('save note API failed:', err);
+          showAlert('บันทึก note ไม่สำเร็จ: ' + (err?.message || err));
+        }
+      }
       closeNoteModal();
-      renderNotes(currentUserId);
+      // re-render เฉพาะถ้า user ยังอยู่ที่แชทเดิม
+      if (currentUserId === targetUserId) renderNotes(targetUserId);
       // Note-derived chip is computed from the notes themselves, so a fresh
       // user-list render is enough — saving/editing a note flows through.
       renderUserList();
@@ -2703,6 +2973,8 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       if (!ok) return;
       const notes = loadNotes(currentUserId).filter(n => n.id !== noteId);
       saveNotes(currentUserId, notes);
+      fetch('/api/admin/notes/' + encodeURIComponent(noteId), { method: 'DELETE' })
+        .catch(err => console.warn('delete note API failed:', err));
       renderNotes(currentUserId);
       // Drops the corresponding chip when this was the last note in its
       // category — chips are derived from the notes array.
@@ -2712,6 +2984,17 @@ export const ADMIN_HTML = `<!DOCTYPE html>
 
     function exportIconMarkup() {
       return \`<div class="chat-head-actions">
+        <!-- [AI DISABLED] ปุ่ม per-chat AI ปิดไว้ — เปิดคืนโดย uncomment + เปิด worker
+        <button type="button" class="chat-head-icon ai-btn" id="chatAiBtn" onclick="toggleChatAi()" title="AI เฉพาะแชทนี้: เปิด (คลิกเพื่อปิด)">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="11" width="18" height="10" rx="2"/>
+            <circle cx="8.5" cy="16" r="1.5" fill="currentColor" stroke="none"/>
+            <circle cx="15.5" cy="16" r="1.5" fill="currentColor" stroke="none"/>
+            <path d="M8 11V7a4 4 0 018 0v4"/>
+            <line x1="12" y1="3" x2="12" y2="7"/>
+          </svg>
+        </button>
+        -->
         <button type="button" class="chat-head-icon" onclick="openBulkModal()" title="Export บทสนทนา">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/>
@@ -2728,6 +3011,7 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       closeMobilePanels();
       document.getElementById('chatInput').style.display = 'flex';
       document.getElementById('tplBar').style.display = 'flex';
+      await hydrateNotesFromServer(userId);
       renderTplBar();
 
       document.querySelectorAll('.user-item').forEach(el => {
@@ -2739,6 +3023,7 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       const cached = userProfiles[userId];
       const headAvatar = avatarMarkup(cached?.pictureUrl, cached?.displayName || userId);
       header.innerHTML = \`\${headAvatar}<span class="name">\${escapeHtml(cached?.displayName || userId.substring(0, 20) + '...')}</span>\${exportIconMarkup()}\`;
+      loadChatAiState(userId);
       container.innerHTML = '<div class="loading-wrap"><div class="spinner"></div><div>กำลังโหลดข้อความ...</div></div>';
       renderInfoPanel(userId, null, null);
 
@@ -2749,7 +3034,10 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       }).catch(err => console.warn('mark-as-read failed:', err));
 
       if (pollInterval) clearInterval(pollInterval);
-      pollInterval = setInterval(() => loadMessages(userId, false), 3000);
+      // Visibility-aware — เหมือนกับ loadConversations ตัด polling ตอน tab hidden
+      pollInterval = setInterval(() => {
+        if (document.visibilityState === 'visible') loadMessages(userId, false);
+      }, 3000);
     }
 
     async function markAsRead(userId) {
@@ -2788,9 +3076,16 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       const container = document.getElementById('chatMessages');
       const header = document.getElementById('chatHeader');
       const profile = data.profile;
-      const name = profile?.displayName || userProfiles[userId]?.displayName || userId;
+      const rawLineNameHdr = profile?.displayName || userProfiles[userId]?.displayName || '';
+      const lineNameHdr = formatDisplayName(rawLineNameHdr, userId);
+      const customNameHdr = loadCustomName(userId);
+      // Format: "แอล (เดิม: 🌸✨สาย🌸✨)" หรือชื่อ LINE ปกติ
+      const name = customNameHdr
+        ? customNameHdr + ' (เดิม: ' + lineNameHdr + ')'
+        : lineNameHdr;
       const pic = profile?.pictureUrl || userProfiles[userId]?.pictureUrl || null;
-      header.innerHTML = \`\${avatarMarkup(pic, name)}<span class="name">\${escapeHtml(name)}</span>\${exportIconMarkup()}\`;
+      header.innerHTML = \`\${avatarMarkup(pic, customNameHdr || lineNameHdr)}<span class="name">\${escapeHtml(name)}</span>\${exportIconMarkup()}\`;
+      loadChatAiState(userId);
       renderInfoPanel(userId, profile, data.messages);
 
       if (data.messages.length === lastMessageCount) return;
@@ -3215,11 +3510,20 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       searchTerm = filters.name;
       renderUserList();
     }
+    // Debounce — กัน re-render 1000+ rows ทุกตัวอักษรที่พิมพ์
+    // text input รอ 200ms หลังหยุดพิมพ์ค่อย filter (เร็วพอที่จะรู้สึก "instant")
+    // SELECT / date pickers ไม่ต้อง debounce เพราะเปลี่ยนทีละครั้ง
+    let _filterDebounceTimer = null;
+    function readFiltersDebounced() {
+      clearTimeout(_filterDebounceTimer);
+      _filterDebounceTimer = setTimeout(readFilters, 200);
+    }
     ['filterDateFrom', 'filterDateTo', 'filterUserName', 'filterMessage', 'filterStatus']
       .forEach(id => {
         const el = document.getElementById(id);
+        const isTextInput = el.type === 'text';
         const evt = el.tagName === 'SELECT' || el.type === 'date' ? 'change' : 'input';
-        el.addEventListener(evt, readFilters);
+        el.addEventListener(evt, isTextInput ? readFiltersDebounced : readFilters);
       });
     document.getElementById('filterSearchBtn').addEventListener('click', readFilters);
     document.getElementById('filterResetBtn').addEventListener('click', () => {
@@ -3682,35 +3986,58 @@ export const ADMIN_HTML = `<!DOCTYPE html>
       if (count === 1) {
         const userId = Array.from(bulkSelected)[0];
         const profile = userProfiles[userId];
-        const safeName = (profile?.displayName || userId.slice(0, 8))
+        // ส่ง customName ไปกับ body — server ใช้เป็นชื่อใน filename + เนื้อหา
+        const customName = loadCustomName(userId) || null;
+        const fileSafeName = (customName || profile?.displayName || userId.slice(0, 8))
           .replace(/[^a-zA-Z0-9ก-๙_\\-.]/g, '_').slice(0, 40);
         url = '/api/admin/conversations/' + encodeURIComponent(userId) + '/export/' + format;
         if (commonParams.toString()) url += '?' + commonParams.toString();
         body = {
           notes: notesPayloadFor(userId),
           topic: topicPayloadFor(userId),
+          customName,
         };
-        fallbackName = 'DaikinPromo_' + safeName + '_' + today + (format === 'pdf' ? '.pdf' : '.docx');
+        fallbackName = 'DaikinPromo_' + fileSafeName + '_' + today + (format === 'pdf' ? '.pdf' : '.docx');
       } else {
         const qs = new URLSearchParams(commonParams);
         qs.set('ids', Array.from(bulkSelected).join(','));
         url = '/api/admin/export/bulk/word?' + qs.toString();
         const notesByUser = {};
         const topicByUser = {};
+        const customNamesByUser = {};
         Array.from(bulkSelected).forEach(uid => {
           const arr = notesPayloadFor(uid);
           if (arr.length > 0) notesByUser[uid] = arr;
           const t = topicPayloadFor(uid);
           if (t) topicByUser[uid] = t;
+          const cn = loadCustomName(uid);
+          if (cn) customNamesByUser[uid] = cn;
         });
-        body = { notesByUser, topicByUser };
+        body = { notesByUser, topicByUser, customNamesByUser };
         fallbackName = 'DaikinPromo_ChatReport_' + today + '.docx';
       }
       postExport(url, body, fallbackName).then(() => closeBulkModal());
     }
 
-    loadConversations();
-    setInterval(loadConversations, 5000);
+    async function initAdminData() {
+      await hydrateNoteCategoriesFromServer();
+      await hydrateTemplatesFromServer();
+      await hydrateNotesFromServer();
+      renderUserList();
+      renderTplBar();
+      loadConversations();
+    }
+
+    initAdminData();
+    // Visibility-aware polling — หยุดดึง list เวลา tab ถูก minimize / สลับ tab
+    // ลด server load ถ้ามี admin หลายคนเปิดทิ้งโดยไม่ active
+    // กลับมา visible → ดึง 1 ครั้งเพื่อ catch up state ใหม่
+    setInterval(() => {
+      if (document.visibilityState === 'visible') loadConversations();
+    }, 5000);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') loadConversations();
+    });
 
     // === Pretty date format dd/mm/yyyy ==================================
     // Native <input type="date"> shows mm/dd/yyyy on en-US browsers and we
@@ -3774,6 +4101,92 @@ export const ADMIN_HTML = `<!DOCTYPE html>
     // but this guards against future dynamically-added inputs).
     new MutationObserver(_enhanceDateInputs).observe(document.body, { childList: true, subtree: true });
     // === end pretty date ================================================
+
+    // === Global AI toggle ===============================================
+    // Level 1: kills AI for ALL chats system-wide in one click.
+    // State lives in server memory (ai-settings.ts) — resets to ON after container restart.
+    // UI uses optimistic update: flip immediately, revert on API failure.
+    let _globalAiEnabled = true;
+
+   //function applyAiToggleUI(enabled) {
+     // _globalAiEnabled = enabled;
+      //const bar    = document.getElementById('globalAiBar');
+      //const toggle = document.getElementById('globalAiToggle');
+      //const label  = document.getElementById('globalAiLabel');
+      //if (!bar) return;
+      //bar.classList.toggle('on', enabled);
+      //toggle.classList.toggle('on', enabled);
+      //label.textContent = enabled ? 'AI ทั้งระบบ: เปิดอยู่' : 'AI ทั้งระบบ: ปิดอยู่';
+    //}
+
+    async function toggleGlobalAi() {
+      const next = !_globalAiEnabled;
+      // Guard: require explicit confirm before shutting down AI globally
+      if (!next && !confirm('ปิด AI ทั้งระบบ? บอทจะหยุดตอบทุกแชทจนกว่าจะเปิดใหม่')) return;
+      applyAiToggleUI(next); // optimistic
+      try {
+        await fetch('/api/admin/settings/ai-global', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: next }),
+        });
+      } catch (err) {
+        console.warn('toggleGlobalAi failed:', err);
+        applyAiToggleUI(!next); // revert on failure
+      }
+    }
+
+    // Sync UI with server state on page load (server is source of truth)
+    (async function initGlobalAiToggle() {
+      try {
+        const res = await fetch('/api/admin/settings/ai-global');
+        const data = await res.json();
+        applyAiToggleUI(data.enabled);
+      } catch { applyAiToggleUI(true); }
+    })();
+    // === end global AI toggle ===========================================
+
+    // === Per-chat AI toggle =============================================
+    // Level 2: kills AI for a single conversation only (amber button in chat header).
+    // Global toggle takes priority — if global is off, per-chat state is irrelevant.
+    // State re-fetched from server each time a chat is opened so switching chats
+    // always reflects the correct per-user setting.
+    let _chatAiEnabled = true;
+
+    function applyChatAiUI(enabled) {
+      _chatAiEnabled = enabled;
+      const btn = document.getElementById('chatAiBtn');
+      if (!btn) return;
+      btn.classList.toggle('ai-btn', enabled);   // amber
+      btn.classList.toggle('ai-off', !enabled);  // grey
+      btn.title = enabled ? 'AI เฉพาะแชทนี้: เปิด (คลิกเพื่อปิด)' : 'AI เฉพาะแชทนี้: ปิด (คลิกเพื่อเปิด)';
+    }
+
+    // Called every time a chat is selected to pull fresh state from server
+    async function loadChatAiState(userId) {
+      try {
+        const res = await fetch('/api/admin/conversations/' + userId + '/ai-enabled');
+        const data = await res.json();
+        applyChatAiUI(data.enabled);
+      } catch { applyChatAiUI(true); }
+    }
+
+    async function toggleChatAi() {
+      if (!currentUserId) return;
+      const next = !_chatAiEnabled;
+      applyChatAiUI(next); // optimistic
+      try {
+        await fetch('/api/admin/conversations/' + currentUserId + '/ai-enabled', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: next }),
+        });
+      } catch (err) {
+        console.warn('toggleChatAi failed:', err);
+        applyChatAiUI(!next); // revert on failure
+      }
+    }
+    // === end per-chat AI toggle =========================================
   </script>
 </body>
 </html>

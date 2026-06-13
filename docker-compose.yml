@@ -8,44 +8,19 @@ services:
     environment:
       - REDIS_HOST=redis
       - DATABASE_URL=mysql://smmms_admin:Q6JK6uNDD8t4C6V9euyd@mysql:3306/kwunjai_bot
-      # S3 / MinIO — see src/shared/s3-client.ts for endpoint vs public-endpoint rationale
-      - S3_ENDPOINT=http://minio:9000
-      - S3_PUBLIC_ENDPOINT=http://localhost:9000
-      - S3_REGION=us-east-1
-      - S3_ACCESS_KEY=minioadmin
-      - S3_SECRET_KEY=minioadmin
-      - S3_BUCKET=kongkwun-media
-      # Media proxy mode (dev tunnel): app's /media/* route streams from MinIO
-      # using HMAC-validated tokens. Used because LINE servers can't reach
-      # http://localhost — but they CAN reach the ngrok HTTPS tunnel that's
-      # already pointed at the app on :3000 for webhooks. One tunnel, two uses.
-      # Set MEDIA_PROXY_BASE_URL to your ngrok / cloudflared HTTPS URL.
-      # Leave empty in production where MinIO has its own HTTPS public host.
-      - MEDIA_PROXY_BASE_URL=https://delay-aftermath-recent.ngrok-free.dev
-      - MEDIA_PROXY_SECRET=dev-only-change-me-in-prod-7H9k2pQz
-      # Used ONLY by scripts/backfill-gcs-to-minio.ts (one-time backfill).
-      # Runtime app code doesn't read GCS_KEY_FILE anymore (see legacy/pre-minio/).
-      - GCS_KEY_FILE=/app/rearn-201506-c7325af234f1.json
     volumes:
-      # Mount scripts and GCS service-account key for one-time backfill jobs.
-      # The app's runtime code doesn't depend on either — only `scripts/*` does.
-      - ./scripts:/app/scripts:ro
       - ./rearn-201506-c7325af234f1.json:/app/rearn-201506-c7325af234f1.json:ro
     depends_on:
       redis:
         condition: service_healthy
       mysql:
         condition: service_healthy
-      minio:
-        condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
     restart: unless-stopped
 
   mysql:
     image: mysql:8.0
     ports:
-      - "3306:3306"
+      - "3307:3306"
     environment:
       MYSQL_ROOT_PASSWORD: root_pass
       MYSQL_DATABASE: kwunjai_bot
@@ -72,38 +47,6 @@ services:
       timeout: 3s
       retries: 5
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Web console
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - miniodata:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-
-  # One-shot bootstrap: configures the `mc` alias and creates the bucket.
-  # `|| true` on `mc mb` so re-runs (when the bucket already exists) succeed.
-  minio-init:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb -p local/kongkwun-media || true
-      "
-
 volumes:
   mysqldata:
   redisdata:
-  miniodata:

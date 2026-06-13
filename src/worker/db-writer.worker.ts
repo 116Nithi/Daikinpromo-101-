@@ -14,6 +14,7 @@ interface DbWriterJob {
   timestamp: string;
   quoteToken?: string;
   quotedMessageId?: string; // serialized BigInt
+  displayName?: string;     // LINE display name, inbound messages only
 }
 
 async function processDbWrite(job: Job<DbWriterJob>): Promise<void> {
@@ -36,6 +37,7 @@ async function processDbWrite(job: Job<DbWriterJob>): Promise<void> {
       timestamp: new Date(data.timestamp),
       quoteToken: data.quoteToken,
       quotedMessageId: data.quotedMessageId ? BigInt(data.quotedMessageId) : undefined,
+      displayName: data.displayName,
     },
   });
 

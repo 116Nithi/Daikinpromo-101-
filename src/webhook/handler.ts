@@ -9,6 +9,10 @@ interface WebhookBody {
   destination: string;
 }
 
+interface RawBodyRequest extends FastifyRequest {
+  rawBody?: string;
+}
+
 /**
  * Verify LINE webhook signature using HMAC-SHA256.
  */
@@ -17,9 +21,12 @@ function verifySignature(body: string, signature: string): boolean {
     .createHmac("sha256", env.LINE_CHANNEL_SECRET)
     .update(body)
     .digest("base64");
+  const expected = Buffer.from(hash);
+  const actual = Buffer.from(signature);
+  if (expected.length !== actual.length) return false;
   return crypto.timingSafeEqual(
-    Buffer.from(hash),
-    Buffer.from(signature)
+    expected,
+    actual
   );
 }
 
@@ -28,6 +35,7 @@ export async function webhookHandler(
   reply: FastifyReply
 ): Promise<void> {
   const signature = request.headers["x-line-signature"] as string;
+  const rawRequest = request as RawBodyRequest;
 
   if (!signature) {
     reply.code(400).send({ error: "Missing signature" });
@@ -35,10 +43,11 @@ export async function webhookHandler(
   }
 
   // Fastify raw body for signature verification
-  const rawBody =
+  const rawBody = rawRequest.rawBody ?? (
     typeof request.body === "string"
       ? request.body
-      : JSON.stringify(request.body);
+      : JSON.stringify(request.body)
+  );
 
   // ข้าม signature check ตอน development
   if (env.NODE_ENV !== "development" && !verifySignature(rawBody, signature)) {

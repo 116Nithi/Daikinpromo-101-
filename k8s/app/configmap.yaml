@@ -6,5 +6,5 @@ metadata:
 data:
   PORT: "3000"
   NODE_ENV: "production"
-  REDIS_HOST: "redis"
+  REDIS_HOST: "redis-svc"
   REDIS_PORT: "6379"

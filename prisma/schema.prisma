@@ -28,6 +28,7 @@ model Conversation {
   // to 500 to absorb any future LINE format changes without another schema bump.
   quoteToken      String?  @map("quote_token") @db.VarChar(500)
   quotedMessageId BigInt?  @map("quoted_message_id")
+  displayName     String?  @map("display_name") @db.VarChar(255)
 
   @@index([lineUserId, timestamp])
   @@index([direction])
@@ -40,11 +41,59 @@ model Conversation {
 // Shared across all admins (lives in DB instead of per-browser localStorage)
 // so flagging a chat in one browser is visible in every other browser.
 model ChatStatus {
-  lineUserId String    @id @map("line_user_id") @db.VarChar(64)
-  pinned     Boolean   @default(false)
-  pinnedAt   DateTime? @map("pinned_at") @db.DateTime(3)
-  isSpam     Boolean   @default(false) @map("is_spam")
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  lineUserId  String    @id @map("line_user_id") @db.VarChar(64)
+  pinned      Boolean   @default(false)
+  pinnedAt    DateTime? @map("pinned_at") @db.DateTime(3)
+  isSpam      Boolean   @default(false) @map("is_spam")
+  needsAdmin  Boolean   @default(false) @map("needs_admin")
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
 
   @@map("chat_status")
+}
+
+model NoteCategory {
+  key       String   @id @db.VarChar(80)
+  label     String   @db.VarChar(120)
+  color     String   @db.VarChar(20)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@map("note_categories")
+}
+
+model UserNote {
+  id         String   @id @db.VarChar(80)
+  lineUserId String   @map("line_user_id") @db.VarChar(64)
+  category   String   @db.VarChar(80)
+  customLabel String? @map("custom_label") @db.VarChar(120)
+  body       String   @db.Text
+  author     String   @db.VarChar(80)
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@index([lineUserId, createdAt])
+  @@map("user_notes")
+}
+
+model MessageTemplate {
+  key       String   @id @db.VarChar(80)
+  items     Json
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@map("message_templates")
+}
+
+// Cache of LINE user profiles (display name + avatar).
+// Populated by event-processor on every inbound message so the admin
+// conversation list never needs to call getProfile for every user on load.
+// updatedAt lets us detect stale entries (LINE profiles change infrequently
+// so we only refresh when admin opens a specific chat).
+model UserProfile {
+  lineUserId  String   @id @map("line_user_id") @db.VarChar(64)
+  displayName String?  @map("display_name") @db.VarChar(255)
+  pictureUrl  String?  @map("picture_url") @db.Text
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@map("user_profiles")
 }

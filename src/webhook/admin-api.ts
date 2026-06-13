@@ -1,21 +1,11 @@
 import { FastifyRequest, FastifyReply } from "fastify";
 import "@fastify/multipart";
 import { messagingApi } from "@line/bot-sdk";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../database/prisma";
 import { env } from "../config/env";
-// Legacy GCS import — preserved for rollback (see legacy/pre-minio/README.md)
-// import { getSignedUrl, uploadToGCS } from "../shared/gcs-client";
-//
-// Two URL variants:
-//   getSignedUrl       — full public URL (sent to LINE Push API; LINE servers fetch it)
-//   getSignedUrlLocal  — same-origin URL (sent to admin browser; avoids ngrok HTML
-//                        interstitial that breaks <img> loads when MEDIA_PROXY_BASE_URL
-//                        points at a free-tier ngrok tunnel)
-import {
-  getS3SignedUrl as getSignedUrl,
-  getS3SignedUrlLocal as getSignedUrlLocal,
-  uploadToS3 as uploadToGCS,
-} from "../shared/s3-client";
+import { getSignedUrl, getSignedUrlLocal, uploadToGCS } from "../shared/gcs-client";
+import { isAiEnabled, setAiEnabled, isUserAiEnabled, setUserAiEnabled } from "../shared/ai-settings";
 
 const client = new messagingApi.MessagingApiClient({
   channelAccessToken: env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -37,6 +27,26 @@ interface ConversationParams {
 interface ConversationQuery {
   limit?: string;
   offset?: string;
+}
+
+interface NoteCategoryInput {
+  key: string;
+  label: string;
+  color: string;
+}
+
+interface UserNoteInput {
+  id?: string;
+  category: string;
+  customLabel?: string;
+  body: string;
+  author?: string;
+  createdAt?: string;
+}
+
+interface TemplateInput {
+  key: string;
+  items: unknown[];
 }
 
 /**
@@ -137,7 +147,14 @@ export async function adminUploadHandler(
     };
   }
 
-  const pushRes = await client.pushMessage({ to: lineUserId, messages: [message] });
+  let pushRes;
+  try {
+    pushRes = await client.pushMessage({ to: lineUserId, messages: [message] });
+  } catch (lineErr: unknown) {
+    const detail = lineErr instanceof Error ? lineErr.message : String(lineErr);
+    reply.code(502).send({ error: `LINE API error: ${detail}` });
+    return;
+  }
 
   // Capture LINE-issued quoteToken so admin can later quote-reply this media
   // message. LINE issues tokens for image/video/audio/file/text — basically
@@ -266,6 +283,8 @@ export async function adminTemplatePreviewUrlsHandler(
   await Promise.all(
     paths.map(async (p) => {
       if (typeof p === "string" && (p.startsWith("gs://") || p.startsWith("s3://"))) {
+        // s3:// rows can still exist in the DB from the brief MinIO experiment;
+        // getSignedUrl treats them as gs:// paths so the admin can still view them.
         try {
           // Local variant — these URLs render <img> tags in the admin browser.
           urls[p] = await getSignedUrlLocal(p, ttlMs);
@@ -332,10 +351,17 @@ export async function adminSendTemplateHandler(
   // quote-reply individual items in the template.
   const quoteTokens: (string | undefined)[] = new Array(messages.length).fill(undefined);
   for (let i = 0; i < messages.length; i += 5) {
-    const pushRes = await client.pushMessage({
-      to: lineUserId,
-      messages: messages.slice(i, i + 5),
-    });
+    let pushRes;
+    try {
+      pushRes = await client.pushMessage({
+        to: lineUserId,
+        messages: messages.slice(i, i + 5),
+      });
+    } catch (lineErr: unknown) {
+      const detail = lineErr instanceof Error ? lineErr.message : String(lineErr);
+      reply.code(502).send({ error: `LINE API error: ${detail}` });
+      return;
+    }
     const sentMessages = (pushRes as unknown as { sentMessages?: Array<{ quoteToken?: string }> }).sentMessages;
     if (sentMessages) {
       for (let j = 0; j < sentMessages.length; j++) {
@@ -434,10 +460,20 @@ export async function adminReplyHandler(
   };
   if (quoteToken) msg.quoteToken = quoteToken;
 
-  const pushRes = await client.pushMessage({
-    to: lineUserId,
-    messages: [msg],
-  });
+  let pushRes;
+  try {
+    pushRes = await client.pushMessage({
+      to: lineUserId,
+      messages: [msg],
+    });
+  } catch (lineErr: unknown) {
+    // Expose LINE API error to the browser so admin sees a real message
+    // instead of the generic "fetch failed" that occurs when the server drops
+    // the connection on an unhandled throw.
+    const detail = lineErr instanceof Error ? lineErr.message : String(lineErr);
+    reply.code(502).send({ error: `LINE API error: ${detail}` });
+    return;
+  }
 
   // Capture LINE-issued quoteToken for the new outbound message so it can be
   // quoted later (admin replying to their own past message).
@@ -479,9 +515,11 @@ export async function listConversationsHandler(
       c.message_type AS messageType,
       c.content,
       c.timestamp,
-      COALESCE(s.pinned, FALSE)  AS pinned,
-      s.pinned_at                AS pinnedAt,
-      COALESCE(s.is_spam, FALSE) AS isSpam
+      c.display_name AS displayName,
+      COALESCE(s.pinned, FALSE)       AS pinned,
+      s.pinned_at                     AS pinnedAt,
+      COALESCE(s.is_spam, FALSE)      AS isSpam,
+      COALESCE(s.needs_admin, FALSE)  AS needsAdmin
     FROM conversations c
     INNER JOIN (
       SELECT line_user_id, MAX(timestamp) AS max_ts
@@ -496,9 +534,11 @@ export async function listConversationsHandler(
     messageType: string;
     content: unknown;
     timestamp: Date;
+    displayName: string | null;
     pinned: number | boolean;
     pinnedAt: Date | null;
     isSpam: number | boolean;
+    needsAdmin: number | boolean;
   }>;
 
   // Unread = inbound messages with isRead = false.
@@ -514,34 +554,38 @@ export async function listConversationsHandler(
     unreadMap.set(r.lineUserId, r._count._all);
   }
 
-  // Fetch LINE profiles for all users
-  const withProfiles = await Promise.all(
-    conversations.map(async (c) => {
-      let displayName = c.lineUserId;
-      let pictureUrl: string | null = null;
-      try {
-        const profile = await client.getProfile(c.lineUserId);
-        displayName = profile.displayName;
-        pictureUrl = profile.pictureUrl ?? null;
-      } catch {
-        // User may have blocked the OA
-      }
-      return {
-        lineUserId: c.lineUserId,
-        direction: c.direction,
-        messageType: c.messageType,
-        content: c.content,
-        timestamp: c.timestamp,
-        displayName,
-        pictureUrl,
-        unreadCount: unreadMap.get(c.lineUserId) ?? 0,
-        // MySQL returns BOOLEAN as tinyint(1) — coerce to real boolean for the client
-        pinned: Boolean(c.pinned),
-        pinnedAt: c.pinnedAt,
-        isSpam: Boolean(c.isSpam),
-      };
-    })
-  );
+  // pictureUrl + displayName fallback จาก user_profiles
+  // user_profiles ถูก populate จาก LINE getProfile (event-processor + chat-detail)
+  // → มีชื่อจริงเสมอ (ถ้า user ไม่ block OA)
+  const userIds = conversations.map(c => c.lineUserId);
+  const profileRows = await prisma.userProfile.findMany({
+    where: { lineUserId: { in: userIds } },
+    select: { lineUserId: true, pictureUrl: true, displayName: true },
+  });
+  const profileMap = new Map(profileRows.map(p => [p.lineUserId, p]));
+
+  const withProfiles = conversations.map(c => {
+    const cached = profileMap.get(c.lineUserId);
+    return {
+      lineUserId: c.lineUserId,
+      direction: c.direction,
+      messageType: c.messageType,
+      content: c.content,
+      timestamp: c.timestamp,
+      // Priority:
+      // 1. user_profiles.displayName — มาจาก LINE getProfile โดยตรง ชื่อจริง
+      // 2. conversations.display_name — บันทึกตอน insert message
+      // 3. LINE ID — สุดท้ายถ้าไม่มีอะไร
+      displayName: cached?.displayName ?? c.displayName ?? c.lineUserId,
+      pictureUrl: cached?.pictureUrl ?? null,
+      unreadCount: unreadMap.get(c.lineUserId) ?? 0,
+      // MySQL returns BOOLEAN as tinyint(1) — coerce to real boolean for the client
+      pinned: Boolean(c.pinned),
+      pinnedAt: c.pinnedAt,
+      isSpam: Boolean(c.isSpam),
+      needsAdmin: Boolean(c.needsAdmin),
+    };
+  });
 
   reply.send(withProfiles);
 }
@@ -555,40 +599,43 @@ export async function listConversationsHandler(
 export async function updateChatStatusHandler(
   request: FastifyRequest<{
     Params: { lineUserId: string };
-    Body: { pinned?: boolean; isSpam?: boolean };
+    Body: { pinned?: boolean; isSpam?: boolean; needsAdmin?: boolean };
   }>,
   reply: FastifyReply
 ): Promise<void> {
   const { lineUserId } = request.params;
-  const { pinned, isSpam } = request.body ?? {};
+  const { pinned, isSpam, needsAdmin } = request.body ?? {};
 
-  if (pinned === undefined && isSpam === undefined) {
-    reply.code(400).send({ error: "ต้องระบุ pinned หรือ isSpam อย่างน้อย 1 อย่าง" });
+  if (pinned === undefined && isSpam === undefined && needsAdmin === undefined) {
+    reply.code(400).send({ error: "ต้องระบุ pinned, isSpam หรือ needsAdmin อย่างน้อย 1 อย่าง" });
     return;
   }
 
-  // Track when a chat was pinned so the sidebar can sort by pin time
   const pinnedAt = pinned === true ? new Date() : pinned === false ? null : undefined;
 
-  const row = await prisma.chatStatus.upsert({
+  const row = await (prisma.chatStatus.upsert as (args: unknown) => Promise<unknown>)({
     where: { lineUserId },
     create: {
       lineUserId,
       pinned: pinned ?? false,
       pinnedAt: pinned === true ? new Date() : null,
       isSpam: isSpam ?? false,
+      needsAdmin: needsAdmin ?? false,
     },
     update: {
       ...(pinned !== undefined && { pinned, pinnedAt }),
       ...(isSpam !== undefined && { isSpam }),
+      ...(needsAdmin !== undefined && { needsAdmin }),
     },
-  });
+  }) as Awaited<ReturnType<typeof prisma.chatStatus.upsert>>;
 
+  const r = row as typeof row & { needsAdmin?: boolean };
   reply.send({
     lineUserId: row.lineUserId,
     pinned: row.pinned,
     pinnedAt: row.pinnedAt,
     isSpam: row.isSpam,
+    needsAdmin: Boolean(r.needsAdmin),
   });
 }
 
@@ -601,7 +648,7 @@ export async function getConversationHandler(
   reply: FastifyReply
 ): Promise<void> {
   const { lineUserId } = request.params;
-  const limit = parseInt(request.query.limit ?? "50", 10);
+  const limit = parseInt(request.query.limit ?? "500", 10);
   const offset = parseInt(request.query.offset ?? "0", 10);
 
   const rawMessages = await prisma.conversation.findMany({
@@ -643,6 +690,22 @@ export async function getConversationHandler(
   let profile = null;
   try {
     profile = await client.getProfile(lineUserId);
+    // Cache ลง user_profiles เพื่อให้ list query ครั้งหน้าได้ชื่อจริง
+    // (ก่อนหน้านี้ดึง live แต่ไม่ persist → list ยังโชว์ LINE ID เปล่า)
+    if (profile?.displayName) {
+      await prisma.userProfile.upsert({
+        where: { lineUserId },
+        create: {
+          lineUserId,
+          displayName: profile.displayName,
+          pictureUrl: profile.pictureUrl ?? null,
+        },
+        update: {
+          displayName: profile.displayName,
+          pictureUrl: profile.pictureUrl ?? null,
+        },
+      });
+    }
   } catch {
     // User may have blocked the OA
   }
@@ -683,4 +746,254 @@ export async function deleteConversationHandler(
   const result = await prisma.conversation.deleteMany({ where: { lineUserId } });
   await prisma.chatStatus.deleteMany({ where: { lineUserId } });
   reply.send({ status: "ok", deleted: result.count });
+}
+
+function cleanColor(raw: unknown): string {
+  const color = String(raw ?? "");
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color : "#5f6368";
+}
+
+function cleanKey(raw: unknown, fallbackPrefix: string): string {
+  const key = String(raw ?? "").trim().replace(/[^a-zA-Z0-9:_-]/g, "_").slice(0, 80);
+  return key || `${fallbackPrefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export async function listNoteCategoriesHandler(
+  _request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  const rows = await prisma.noteCategory.findMany({ orderBy: { createdAt: "asc" } });
+  reply.send(rows.map((r) => ({ key: r.key, label: r.label, color: r.color })));
+}
+
+export async function replaceNoteCategoriesHandler(
+  request: FastifyRequest<{ Body: { categories?: NoteCategoryInput[] } }>,
+  reply: FastifyReply
+): Promise<void> {
+  const categories = Array.isArray(request.body?.categories) ? request.body.categories : [];
+  const clean = categories
+    .map((c) => ({
+      key: cleanKey(c.key, "cat"),
+      label: String(c.label ?? "").trim().slice(0, 120),
+      color: cleanColor(c.color),
+    }))
+    .filter((c) => c.label.length > 0);
+
+  await prisma.$transaction([
+    prisma.noteCategory.deleteMany(),
+    prisma.noteCategory.createMany({ data: clean, skipDuplicates: true }),
+  ]);
+  reply.send({ status: "ok", categories: clean });
+}
+
+export async function listNotesHandler(
+  request: FastifyRequest<{ Querystring: { lineUserId?: string } }>,
+  reply: FastifyReply
+): Promise<void> {
+  const where = request.query.lineUserId ? { lineUserId: request.query.lineUserId } : {};
+  const rows = await prisma.userNote.findMany({
+    where,
+    orderBy: [{ lineUserId: "asc" }, { createdAt: "asc" }],
+  });
+  reply.send(rows.map((n) => ({
+    id: n.id,
+    lineUserId: n.lineUserId,
+    category: n.category,
+    customLabel: n.customLabel,
+    body: n.body,
+    author: n.author,
+    createdAt: n.createdAt,
+    updatedAt: n.updatedAt,
+  })));
+}
+
+export async function upsertNoteHandler(
+  request: FastifyRequest<{ Body: UserNoteInput & { lineUserId?: string } }>,
+  reply: FastifyReply
+): Promise<void> {
+  const lineUserId = request.body?.lineUserId;
+  // body (รายละเอียด) เป็น optional — เก็บ empty string ก็ได้ ไม่ block validate
+  const body = String(request.body?.body ?? "").trim();
+  const category = String(request.body?.category ?? "").trim().slice(0, 80);
+  if (!lineUserId || !category) {
+    reply.code(400).send({ error: "lineUserId and category are required" });
+    return;
+  }
+
+  const id = cleanKey(request.body.id, "note");
+  const createdAt = request.body.createdAt ? new Date(request.body.createdAt) : new Date();
+  const row = await prisma.userNote.upsert({
+    where: { id },
+    create: {
+      id,
+      lineUserId,
+      category,
+      customLabel: request.body.customLabel ? String(request.body.customLabel).slice(0, 120) : null,
+      body: body.slice(0, 5000),
+      author: String(request.body.author || "Admin").slice(0, 80),
+      createdAt: isNaN(createdAt.getTime()) ? new Date() : createdAt,
+    },
+    update: {
+      category,
+      customLabel: request.body.customLabel ? String(request.body.customLabel).slice(0, 120) : null,
+      body: body.slice(0, 5000),
+      author: String(request.body.author || "Admin").slice(0, 80),
+    },
+  });
+
+  reply.send({
+    id: row.id,
+    lineUserId: row.lineUserId,
+    category: row.category,
+    customLabel: row.customLabel,
+    body: row.body,
+    author: row.author,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  });
+}
+
+export async function deleteNoteHandler(
+  request: FastifyRequest<{ Params: { id: string } }>,
+  reply: FastifyReply
+): Promise<void> {
+  await prisma.userNote.deleteMany({ where: { id: request.params.id } });
+  reply.send({ status: "ok" });
+}
+
+export async function listTemplatesHandler(
+  _request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  const rows = await prisma.messageTemplate.findMany({ orderBy: { createdAt: "asc" } });
+  reply.send(rows.map((t) => ({ key: t.key, items: t.items })));
+}
+
+export async function replaceTemplatesHandler(
+  request: FastifyRequest<{ Body: { templates?: TemplateInput[] } }>,
+  reply: FastifyReply
+): Promise<void> {
+  const templates = Array.isArray(request.body?.templates) ? request.body.templates : [];
+  const clean = templates
+    .map((t) => ({
+      key: cleanKey(t.key, "tpl"),
+      items: (Array.isArray(t.items) ? t.items.slice(0, 5) : []) as Prisma.InputJsonValue,
+    }))
+    .filter((t) => Array.isArray(t.items) && t.items.length > 0)
+    .slice(0, 20);
+
+  await prisma.$transaction([
+    prisma.messageTemplate.deleteMany(),
+    ...clean.map((t) => prisma.messageTemplate.create({ data: t })),
+  ]);
+  reply.send({ status: "ok", templates: clean });
+}
+
+interface ChatAiParams { lineUserId: string; }
+
+export async function getAiGlobalSettingHandler(_request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  reply.send({ enabled: isAiEnabled() });
+}
+
+export async function setAiGlobalSettingHandler(
+  request: FastifyRequest<{ Body: { enabled: boolean } }>,
+  reply: FastifyReply
+): Promise<void> {
+  setAiEnabled(!!request.body.enabled);
+  reply.send({ enabled: isAiEnabled() });
+}
+
+export async function getChatAiHandler(
+  request: FastifyRequest<{ Params: ChatAiParams }>,
+  reply: FastifyReply
+): Promise<void> {
+  reply.send({ enabled: isUserAiEnabled(request.params.lineUserId) });
+}
+
+export async function setChatAiHandler(
+  request: FastifyRequest<{ Params: ChatAiParams; Body: { enabled: boolean } }>,
+  reply: FastifyReply
+): Promise<void> {
+  setUserAiEnabled(request.params.lineUserId, !!request.body.enabled);
+  reply.send({ enabled: isUserAiEnabled(request.params.lineUserId) });
+}
+
+// Core backfill logic — shared by the HTTP handler and the startup auto-run.
+// Fetches LINE profiles for all users with no cached entry in user_profiles,
+// in batches of 10 with 300ms gaps to stay under LINE's rate limit.
+export async function runBackfillProfiles(): Promise<void> {
+  // ดึง user ที่ profile ยังว่าง / ไม่ครบ — รวม 3 เคส:
+  //   1. ไม่มี row ใน user_profiles เลย (เคสเดิม)
+  //   2. มี row แต่ displayName เป็น NULL
+  //   3. มี row แต่ displayName เป็น raw LINE ID (U + hex) เช่นค่าเก่าค้าง
+  // ทั้ง 3 กรณีจะถูก getProfile + upsert ทับด้วยชื่อจริงจาก LINE
+  const allUserIds = await prisma.$queryRaw<Array<{ lineUserId: string }>>`
+    SELECT DISTINCT c.line_user_id AS lineUserId
+    FROM conversations c
+    LEFT JOIN user_profiles p ON p.line_user_id = c.line_user_id
+    WHERE p.line_user_id IS NULL
+       OR p.display_name IS NULL
+       OR p.display_name REGEXP '^U[a-f0-9]{16,}$'
+  `;
+
+  const ids = allUserIds.map((r) => r.lineUserId);
+  const total = ids.length;
+  if (total === 0) {
+    console.log("[backfill-profiles] nothing to backfill");
+    return;
+  }
+
+  console.log(`[backfill-profiles] starting — ${total} users without cached profile`);
+
+  const BATCH = 10;
+  const DELAY = 300;
+  let done = 0;
+  let failed = 0;
+
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const batch = ids.slice(i, i + BATCH);
+    await Promise.all(
+      batch.map(async (lineUserId) => {
+        try {
+          const profile = await client.getProfile(lineUserId);
+          await prisma.userProfile.upsert({
+            where: { lineUserId },
+            create: { lineUserId, displayName: profile.displayName, pictureUrl: profile.pictureUrl ?? null },
+            update: { displayName: profile.displayName, pictureUrl: profile.pictureUrl ?? null },
+          });
+          done++;
+        } catch {
+          // User may have blocked OA or LINE ID is no longer valid — skip silently
+          failed++;
+        }
+      })
+    );
+    if (i + BATCH < ids.length) {
+      await new Promise((r) => setTimeout(r, DELAY));
+    }
+  }
+
+  console.log(`[backfill-profiles] done=${done} failed=${failed} total=${total}`);
+}
+
+/**
+ * POST /api/admin/backfill-profiles
+ * Trigger a manual backfill from the admin page (responds immediately,
+ * runs in background). Safe to call multiple times — skips cached users.
+ */
+export async function backfillProfilesHandler(
+  _request: FastifyRequest,
+  reply: FastifyReply
+): Promise<void> {
+  const allUserIds = await prisma.$queryRaw<Array<{ lineUserId: string }>>`
+    SELECT DISTINCT c.line_user_id AS lineUserId
+    FROM conversations c
+    LEFT JOIN user_profiles p ON p.line_user_id = c.line_user_id
+    WHERE p.line_user_id IS NULL
+  `;
+  const total = allUserIds.length;
+  reply.send({ status: "started", total });
+  runBackfillProfiles().catch(err =>
+    console.error("[backfill-profiles] error:", (err as Error).message)
+  );
 }

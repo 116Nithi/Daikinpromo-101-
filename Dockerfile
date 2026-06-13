@@ -24,4 +24,4 @@ COPY fonts ./fonts
 
 EXPOSE 3000
 
-CMD ["node", "dist/app.js"]
+CMD ["sh", "-c", "node_modules/.bin/prisma db push --accept-data-loss && node dist/app.js"]

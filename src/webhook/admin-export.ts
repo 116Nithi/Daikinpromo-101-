@@ -19,9 +19,7 @@ import {
 } from "docx";
 import { messagingApi } from "@line/bot-sdk";
 import { prisma } from "../database/prisma";
-// Legacy GCS import — preserved for rollback (see legacy/pre-minio/README.md)
-// import { getSignedUrl } from "../shared/gcs-client";
-import { getS3SignedUrl as getSignedUrl } from "../shared/s3-client";
+import { getSignedUrl } from "../shared/gcs-client";
 import { env } from "../config/env";
 
 const client = new messagingApi.MessagingApiClient({
@@ -49,10 +47,28 @@ export interface ExportTopic {
   categoryLabel: string;   // display label (incl. user-typed text for "other")
   color: string;
 }
-interface SingleExportBody { notes?: ExportNote[]; topic?: ExportTopic | null }
+interface SingleExportBody {
+  notes?: ExportNote[];
+  topic?: ExportTopic | null;
+  customName?: string | null;
+}
 interface BulkExportBody {
   notesByUser?: Record<string, ExportNote[]>;
   topicByUser?: Record<string, ExportTopic>;
+  customNamesByUser?: Record<string, string>;
+}
+
+// แอดมินส่ง customName มาจาก localStorage browser ทำความสะอาดก่อนใช้
+// (กัน injection ใน filename + จำกัดความยาว)
+function sanitizeCustomName(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim().slice(0, 100);
+  return trimmed || null;
+}
+
+// รวม custom name + LINE name เป็น "แอล (เดิม: 🌸✨สาย🌸✨)" — ใช้ในเนื้อหา
+function combineDisplayName(customName: string | null, lineName: string): string {
+  return customName ? `${customName} (เดิม: ${lineName})` : lineName;
 }
 
 function sanitizeEditor(raw: string | undefined): string {
@@ -338,12 +354,15 @@ function buildWordSectionChildren(args: {
   profileImage: Buffer | null;
   images: Map<string, Buffer>;
   displayName: string;
+  // ชื่อสั้นสำหรับ sender label ในแต่ละบรรทัด — เลี่ยงใส่ "แอล (เดิม: ...)" ซ้ำ ๆ
+  senderShortName?: string;
   rangeText: string;
   editor: string;
   notes: ExportNote[];
   topic: ExportTopic | null;
 }): (Paragraph | Table)[] {
-  const { rows, profileImage, images, displayName, rangeText, editor, notes, topic } = args;
+  const { rows, profileImage, images, displayName, senderShortName, rangeText, editor, notes, topic } = args;
+  const senderLabel = senderShortName || displayName;
 
   // --- Styling tokens (match PDF palette) ---
   const cellBorder = { style: BorderStyle.SINGLE, size: 4, color: "D1D5DB" };
@@ -418,7 +437,8 @@ function buildWordSectionChildren(args: {
     }
 
     const time = fmtTime(r.timestamp);
-    const sender = directionLabel(r.direction, displayName);
+    // sender label ใน Word: ใช้ senderLabel (ชื่อสั้น) — เลี่ยง "แอล (เดิม: ...)" ซ้ำทุกบรรทัด
+    const sender = directionLabel(r.direction, senderLabel);
     const isOutbound = r.direction !== "inbound";
     const senderColor = r.direction === "inbound" ? "1e40af"
       : r.direction === "outbound_admin" ? "059669" : "7c3aed";
@@ -711,7 +731,12 @@ export async function exportWordHandler(
   const topic = sanitizeTopic(request.body?.topic);
 
   const bundle = await buildExportBundle(lineUserId, from, to);
-  const displayName = bundle.profile?.displayName || lineUserId;
+  const lineName = bundle.profile?.displayName || lineUserId;
+  const customName = sanitizeCustomName(request.body?.customName);
+  // displayName ในเนื้อหา = "แอล (เดิม: 🌸✨สาย🌸✨)" ถ้ามี custom
+  const displayName = combineDisplayName(customName, lineName);
+  // filename ใช้แค่ custom (กระชับ ไม่มีวงเล็บ) — ถ้าไม่มีก็ใช้ LINE name
+  const filenameName = customName || lineName;
   const rangeText = formatRangeText(from, to);
 
   const children = buildWordSectionChildren({
@@ -719,13 +744,16 @@ export async function exportWordHandler(
     profile: bundle.profile,
     profileImage: bundle.profileImage,
     images: bundle.images,
-    displayName, rangeText, editor, notes, topic,
+    displayName,
+    // ใช้ custom name ใน sender label ถ้ามี ไม่งั้นใช้ชื่อ LINE
+    senderShortName: customName || lineName,
+    rangeText, editor, notes, topic,
   });
 
   const doc = new Document({ sections: [{ children }] });
   const buffer = await Packer.toBuffer(doc);
 
-  const filename = `DaikinPromo_${sanitizeFilename(displayName)}_${fmtFilenameDate(filenameDateFromRange(from, to))}.docx`;
+  const filename = `DaikinPromo_${sanitizeFilename(filenameName)}_${fmtFilenameDate(filenameDateFromRange(from, to))}.docx`;
   reply
     .header(
       "Content-Type",
@@ -751,6 +779,7 @@ export async function exportBulkWordHandler(
   const editor = sanitizeEditor(request.query.editor);
   const notesByUser = request.body?.notesByUser ?? {};
   const topicByUser = request.body?.topicByUser ?? {};
+  const customNamesByUser = request.body?.customNamesByUser ?? {};
   const ids = (request.query.ids ?? "")
     .split(",")
     .map((s) => s.trim())
@@ -774,13 +803,18 @@ export async function exportBulkWordHandler(
   const sections = await Promise.all(
     ids.map(async (lineUserId) => {
       const bundle = await buildExportBundle(lineUserId, from, to);
-      const displayName = bundle.profile?.displayName || lineUserId;
+      const lineName = bundle.profile?.displayName || lineUserId;
+      const customName = sanitizeCustomName(customNamesByUser[lineUserId]);
+      // ในเอกสาร: "แอล (เดิม: 🌸✨สาย🌸✨)" ถ้ามี custom ของ user นี้
+      const displayName = combineDisplayName(customName, lineName);
       const children = buildWordSectionChildren({
         rows: bundle.rows,
         profile: bundle.profile,
         profileImage: bundle.profileImage,
         images: bundle.images,
-        displayName, rangeText, editor,
+        displayName,
+        senderShortName: customName || lineName,
+        rangeText, editor,
         notes: sanitizeNotes(notesByUser[lineUserId]),
         topic: sanitizeTopic(topicByUser[lineUserId]),
       });
@@ -823,7 +857,11 @@ export async function exportPdfHandler(
     to
   );
 
-  const displayName = profile?.displayName || lineUserId;
+  const lineName = profile?.displayName || lineUserId;
+  const customName = sanitizeCustomName(request.body?.customName);
+  // PDF: ใช้ "แอล (เดิม: 🌸✨สาย🌸✨)" ในเนื้อหา + custom สำหรับ filename
+  const displayName = combineDisplayName(customName, lineName);
+  const filenameName = customName || lineName;
   const rangeText = formatRangeText(from, to);
 
   const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
@@ -991,7 +1029,8 @@ export async function exportPdfHandler(
     }
 
     const time = fmtTime(r.timestamp);
-    const sender = directionLabel(r.direction, displayName);
+    // PDF sender label: ใช้ชื่อสั้น (customName || lineName) ไม่ใส่วงเล็บซ้ำทุกบรรทัด
+    const sender = directionLabel(r.direction, customName || lineName);
     const isOutbound = r.direction !== "inbound";
     const senderColor =
       r.direction === "inbound"
@@ -1123,7 +1162,7 @@ export async function exportPdfHandler(
   doc.end();
   const buffer = await endPromise;
 
-  const filename = `DaikinPromo_${sanitizeFilename(displayName)}_${fmtFilenameDate(filenameDateFromRange(from, to))}.pdf`;
+  const filename = `DaikinPromo_${sanitizeFilename(filenameName)}_${fmtFilenameDate(filenameDateFromRange(from, to))}.pdf`;
   reply
     .header("Content-Type", "application/pdf")
     .header(

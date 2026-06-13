@@ -1,0 +1,15 @@
+/* Global resets minimal — the legacy admin CSS in styles/admin.css already
+ * carries `* { margin: 0; padding: 0; box-sizing: border-box; }` and its own
+ * body font/background. We intentionally do NOT pull in Tailwind's preflight
+ * here because the legacy stylesheet predates Tailwind and would conflict.
+ *
+ * If a Tailwind-styled component is added later we can import "tailwindcss"
+ * scoped inside that component, but the admin view stays on its own stylesheet
+ * to keep the look pixel-identical.
+ */
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}

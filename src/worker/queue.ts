@@ -26,3 +26,15 @@ export function getQueue(name: string): Queue {
   }
   return queues.get(name)!;
 }
+
+export async function closeQueues(): Promise<void> {
+  await Promise.all([...queues.values()].map((queue) => queue.close()));
+  queues.clear();
+}
+
+export async function closeRedisConnection(): Promise<void> {
+  if (!connection) return;
+  const redis = connection;
+  connection = null;
+  await redis.quit();
+}
